@@ -4,7 +4,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
+#include "strstrp.h"
 
 const int max_line = 1024;
 const int max_commands = 10;
@@ -14,35 +14,6 @@ const int max_commands = 10;
 #define true 1
 #define false 0
 #define bool int
-
-bool is_whitespace(char c){
-  return c == ' ' || c == '\t' || c == '\n';
-}
-
-
-void strip_left(char* str){
-  int i, j;
-  int len = strlen(str);
-  for (i = 0; i <= len; i ++){
-    if(!(is_whitespace(str[i]))){
-      break;
-    }
-  }
-  for (j = 0; j < len - i; j++){
-    str[j] = str[j + i];
-  }
-  str[j] = 0;
-}
-
-void strip_right(char* str){
-  int i;
-  for (i = strlen(str) - 1; i >= 0; i --){
-    if (!is_whitespace(str[i])){
-      break;
-    }
-  }
-  str[++i] = 0;
-}
 
 
 void process_line(char* line){
@@ -54,6 +25,7 @@ void process_line(char* line){
 
 
 void process_input(char* input){
+  input = (void*) input;
   //...
   // for l in input.lines() process_line(l)
   //...
