@@ -6,29 +6,34 @@
 #include <unistd.h>
 #include "str_strip.h"
 
-const int max_line = 1024;
-const int max_commands = 10;
+#define max_commands 10
 #define max_redirections 3 // stdin, stdout, stderr
 #define max_args 15
+#define max_line 1024
 
-#define BUF_SIZE 1024
 
+// File Read Buffer size. Must be at least max_line
+#define F_RD_BUF_SIZE 1024
 #define true 1
 #define false 0
 #define bool int
 
 
-void process_line(char* line, int line_number){
-  size_t line_len = strlen(line);
+void process_line(char* line, int line_number){ 
   strip(line);
+
+  size_t line_len = strlen(line);
+  if (line_len == 0){
+    return;
+  }
+
+
   if (line_number == 0){
-    if (strcmp(line, "## Uc3mshell P2")){
-      fprintf(stderr, "ERROR: Unexpected first line!\n");
+    if (strcmp(line, "## Uc3mshell P2") != 0){
+      fprintf(stderr, "ERROR: Unexpected first line, got %s!\n", line);
       _exit(-1);
     }
   }
-  if (line_len == 0)
-    return;
 
   printf("Line: |%s|\n", line);
 }
@@ -41,12 +46,21 @@ void process_file(char* filename){
     _exit(0);
   }
 
-  char* line;
-  char buf[BUF_SIZE];
-  int line_number = 0, bytes_read;
-  while ((bytes_read = read(fd, buf, BUF_SIZE))){
-    while((line = strtok(line_number > 0 ? NULL : buf, "\n"))){
-      process_line(line, line_number++);
+  char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
+  int line_number = 0;
+  ssize_t bytes_read, offset;
+
+  while ((bytes_read = read(fd, f_buf, F_RD_BUF_SIZE)) > 0){
+    offset = -(ssize_t)strlen(line);
+    for (ssize_t i = 0; i < bytes_read; i ++){
+      if (f_buf[i] == '\n'){
+        line[i - offset] = '\0';
+        process_line(line, line_number++);
+        line[0] = '\0';
+        offset = i + 1;
+        continue;
+      }
+      line[i - offset] = f_buf[i];
     }
   }
 }
