@@ -13,7 +13,6 @@
 #define max_args 15
 #define max_line 1024
 
-
 // File Read Buffer size. Must be at least max_line
 #define F_RD_BUF_SIZE 1024
 #define true 1
@@ -26,7 +25,9 @@ typedef struct {
   pid_t pid;
   int argc;
   // name is argv[0]
-  char** argv;
+  char argv[max_args][max_line];
+  int fd_in;
+  int fd_out;
 } proc_t;
 
 
@@ -82,15 +83,27 @@ void destroy_vec_proc(vec_proc* to_destroy){
   free(to_destroy);
 }
 
+void print_vec_proc(const vec_proc* vector){
+  if(vector == NULL){
+    printf("NULL\n");
+    return;
+  }
+  for (size_t i = 0; i < vector->size; i++){
+    printf("Program: %s\n", vector->values[i].argv[0]);
+    for (size_t j = 1; j < (size_t)vector->values[i].argc; j++){
+      printf("Argument: %s\n", vector->values[i].argv[j]);
+    }
+  }
+}
 
 // once we have parsed the line into proc_t, we can proceed to execute them
 void exec_line(vec_proc* line){
-  line = (void*) line;
+  print_vec_proc(line);
 }
 
 
 // line to vector of processes
-vec_proc* process_line(char* line, int line_number){ 
+vec_proc* process_line(char* line, int line_number){
   strip(line);
 
   size_t line_len = strlen(line);
@@ -114,10 +127,32 @@ vec_proc* process_line(char* line, int line_number){
 
   vec_proc* out = create_vec_proc();
   char* word;
-  int words_read = 0;
-  proc_t current;
-  while ((word = strtok(words_read > 0 ? NULL : line, " ")) != NULL){
-    words_read ++;
+  proc_t current = {
+    .argc = 0
+  };
+
+  int pipe_fd[2];
+  int prev_pipes_stdout = 0;
+
+
+  while ((word = strtok(current.argc == 0 ? line : NULL, " ")) != NULL){
+    if (strcmp(word, "|") == 0){
+      if(prev_pipes_stdout){
+        current.fd_out = pipe_fd[1];
+      }
+      prev_pipes_stdout = 1;
+      pipe(pipe_fd);
+      current.fd_out = pipe_fd[0];
+      append_vec_proc(out, current);
+      current.argc = 0;
+    }else{
+      strcpy(current.argv[current.argc++], word);
+    }
+
+  }
+
+  if (current.argc != 0){
+    append_vec_proc(out, current);
   }
   return out;
 }
@@ -133,6 +168,7 @@ void process_file(char* filename){
   char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
   int line_number = 0;
   ssize_t bytes_read, offset;
+  vec_proc* to_exec;
   // read in chunks
   while ((bytes_read = read(fd, f_buf, F_RD_BUF_SIZE)) > 0){
     offset = -(ssize_t)strlen(line);
@@ -140,7 +176,7 @@ void process_file(char* filename){
       if (f_buf[i] == '\n'){
         line[i - offset] = '\0';
         // vector is freed once executed
-        vec_proc *to_exec = process_line(line, line_number++);
+        to_exec = process_line(line, line_number++);
         if (to_exec != NULL){
           exec_line(to_exec);
           destroy_vec_proc(to_exec);
