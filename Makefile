@@ -6,10 +6,10 @@ CC = gcc
 CFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -O2
 
 # Header files
-DEPS = mycalc.h strstrp.h
+DEPS = mycalc.h str_strip.h
 
 # Objects
-OBJ_SHELL = uc3mshell.o mycalc.o strstrp.o
+OBJ_SHELL = uc3mshell.o mycalc.o str_strip.o
 OBJ_MYCP = mycp.o
 
 # Defined targets

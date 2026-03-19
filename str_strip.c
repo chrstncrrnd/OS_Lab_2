@@ -32,7 +32,8 @@ void strip_right(char* str){
 
 
 void strip(char* str){
-  str = (void*) str;
+  strip_left(str);
+  strip_right(str);
 }
 
 
