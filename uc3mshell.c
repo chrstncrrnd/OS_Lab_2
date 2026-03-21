@@ -20,22 +20,76 @@
 #define bool int
 
 
-// process structure (used for managing processes)
+// command struct (used for managing processes)
 typedef struct {
   pid_t pid;
   int argc;
   // name is argv[0]
   char argv[max_args][max_line / max_args]; // TODO: THIS NEEDS OPTIMIZING
   char filev[3][max_line]; // TODO: remove thsi garbage
+  bool bg;
 } cmd_t;
 
 
-// vector of commands
+// dynamically sized vector of commands
 typedef struct {
-  cmd_t values[max_redirections];
+  cmd_t *values;
   // number of elements
   size_t size;
+  // capacity of array
+  size_t capacity;
 } vec_cmd;
+
+
+
+// create the vector of commands
+vec_cmd* create_vec_cmd(){
+  vec_cmd* out = malloc(sizeof(vec_cmd));
+  if (out == NULL){
+    perror("ERROR: allocating memory for process vector struct!");
+    free(out);
+    _exit(-1);
+  }
+  // initial capacity of 4 is reasonable (won't need to reallocate usually)
+  out->capacity = 4;
+  out->size = 0;
+  out->values = malloc(sizeof(cmd_t) * out->capacity);
+
+  // check that the memory was correctly allocated
+  if (out->values == NULL){
+    perror("ERROR: allocating memory for process vector elements!");
+    _exit(-1);
+  }
+  return out;
+}
+
+
+
+// append value to vector
+void append_vec_cmd(vec_cmd* vector, cmd_t value){
+  if (vector->size == vector->capacity){
+    // reallocate vector
+    vector->capacity = vector->capacity * 2;
+    vector->values = realloc(vector->values, vector->capacity * sizeof(cmd_t));
+    if(vector->values == NULL){
+      perror("ERROR: reallocating memory for process vectors!");
+      _exit(-1);
+    }
+  }
+  vector->values[vector->size++] = value;
+}
+
+
+
+// Don't forget to set pointer equal to null afterwards!
+void destroy_vec_cmd(vec_cmd* to_destroy){
+  if (to_destroy == NULL){
+    return;
+  }
+  free(to_destroy->values);
+  free(to_destroy);
+}
+
 
 
 void print_vec_cmd(const vec_cmd* vector){
@@ -59,14 +113,16 @@ void print_cmd(const cmd_t * command){
   for (size_t j = 1; j < (size_t)command->argc; j++){
     printf("Argument: %s\n", command->argv[j]);
   }
-
 }
+
+
+
 // once we have parsed the line into cmd_t, we can proceed to execute them
-void exec_line(cmd_t* line){
-  print_cmd(line);
+void exec_line(vec_cmd* parsed_line){
+  print_vec_cmd(parsed_line);
   pid_t pid;
   pid = fork();
-
+  cmd_t *line = &parsed_line->values[0];
   // case child
   if (pid == 0){
     char* exec_args[16];
@@ -86,12 +142,12 @@ void exec_line(cmd_t* line){
 
 
 // line to vector of processes
-bool process_line(char* line, int line_number, cmd_t* out){
+vec_cmd* parse_line(char* line, int line_number){
   strip(line);
 
   size_t line_len = strlen(line);
   if (line_len == 0){
-    return false;
+    return NULL;
   }
 
 
@@ -100,28 +156,35 @@ bool process_line(char* line, int line_number, cmd_t* out){
       perror("ERROR: Unexpected first line!\n");
       _exit(-1);
     }else{
-      return false;
+      return NULL;
     }
   }
   if (line[0] == '#'){
-    return false;
+    return NULL;
   }
 
 
   char* word;
   int words_read = 0;
 
+  vec_cmd* vec = create_vec_cmd();
+  cmd_t current = {
+    .argc = 0,
+    .argv = {},
+  };
 
   while ((word = strtok(words_read == 0 ? line : NULL, " ")) != NULL){
     words_read ++;
-    strcpy(out->argv[out->argc++], word);
+    strcpy(current.argv[current.argc++], word);
   }
-  return true;
+  append_vec_cmd(vec, current);
+  return vec;
 }
 
 
 void process_file(char* filename){
   int fd = open(filename, O_RDONLY);
+
   if (fd < 0){
     perror("ERROR: Couldn't open input file");
     _exit(0);
@@ -130,10 +193,6 @@ void process_file(char* filename){
   char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
   int line_number = 0;
   ssize_t bytes_read, offset;
-  cmd_t to_exec = {
-    .argc = 0
-  };
-  bool success;
 
 
 
@@ -144,10 +203,11 @@ void process_file(char* filename){
       if (f_buf[i] == '\n'){
         line[i - offset] = '\0';
         // vector is freed once executed
-        to_exec.argc = 0;
-        success = process_line(line, line_number++, &to_exec);
-        if (success){
-          exec_line(&to_exec);
+        vec_cmd* parsed_line = parse_line(line, line_number++);
+        if (parsed_line != NULL){
+          exec_line(parsed_line);
+          destroy_vec_cmd(parsed_line);
+          parsed_line = NULL;
         }
         line[0] = '\0';
         offset = i + 1;
