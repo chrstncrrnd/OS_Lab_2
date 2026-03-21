@@ -26,10 +26,24 @@ typedef struct {
   int argc;
   // name is argv[0]
   char argv[max_args][max_line / max_args]; // TODO: THIS NEEDS OPTIMIZING
-  char filev[3][max_line]; // TODO: remove thsi garbage
+  int in;
+  int out;
+  int outerr;
   bool bg;
+  char filev[40][3];
 } cmd_t;
 
+void init_cmd_t(cmd_t* val){
+  val->pid = -1;
+  val->argc = 0;
+  val->in = STDIN_FILENO;
+  val->out = STDOUT_FILENO;
+  val->outerr = STDERR_FILENO;
+  val->bg = 0;
+  val->filev[0][0] = '\0';
+  val->filev[1][0] = '\0';
+  val->filev[2][0] = '\0';
+}
 
 // dynamically sized vector of commands
 typedef struct {
@@ -91,35 +105,34 @@ void destroy_vec_cmd(vec_cmd* to_destroy){
 }
 
 
+void print_cmd(const cmd_t * command){
+  printf("------------------------\n");
+  printf("Program: %s\n", command->argv[0]);
+  for (size_t j = 1; j < (size_t)command->argc; j++){
+    printf("\tArgument: %s\n", command->argv[j]);
+  }
+  printf("File Descriptors:\n");
+  printf("\tin: %d\n\tout: %d\n\touterr: %d\n\n", command->in, command->out, command->outerr);
+}
 
 void print_vec_cmd(const vec_cmd* vector){
-  printf("Executing line\n");
   if(vector == NULL){
     printf("NULL\n");
     return;
   }
 
   for (size_t i = 0; i < vector->size; i++){
-    printf("Program: %s\n", vector->values[i].argv[0]);
-    for (size_t j = 1; j < (size_t)vector->values[i].argc; j++){
-      printf("Argument: %s\n", vector->values[i].argv[j]);
-    }
+    print_cmd(&vector->values[i]);
   }
 }
 
-
-void print_cmd(const cmd_t * command){
-  printf("Program: %s\n", command->argv[0]);
-  for (size_t j = 1; j < (size_t)command->argc; j++){
-    printf("Argument: %s\n", command->argv[j]);
-  }
-}
 
 
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
   print_vec_cmd(parsed_line);
+  return;
   pid_t pid;
   pid = fork();
   cmd_t *line = &parsed_line->values[0];
@@ -140,6 +153,10 @@ void exec_line(vec_cmd* parsed_line){
   }
 }
 
+typedef enum{
+  ProcessingCommand,
+  ProcessingFileName
+} ParserState;
 
 // line to vector of processes
 vec_cmd* parse_line(char* line, int line_number){
@@ -165,17 +182,43 @@ vec_cmd* parse_line(char* line, int line_number){
 
 
   char* word;
-  int words_read = 0;
+  int commands_read = 0;
 
   vec_cmd* vec = create_vec_cmd();
-  cmd_t current = {
-    .argc = 0,
-    .argv = {},
-  };
+  cmd_t current;
+  init_cmd_t(&current);
 
-  while ((word = strtok(words_read == 0 ? line : NULL, " ")) != NULL){
-    words_read ++;
-    strcpy(current.argv[current.argc++], word);
+  // 0 = read, 1, = write
+  int pipe_fd[2] = {0, 0};
+  ParserState parser_state = ProcessingCommand;
+  char filename[max_line];
+
+  while ((word = strtok(words_read++ == 0 ? line : NULL, " ")) != NULL){
+    if (strcmp(word, "|") == 0){
+      // pipe
+      if (current.argc == 0){
+        fprintf(stderr, "Syntax error on line %d!", line_number);
+        destroy_vec_cmd(vec);
+        return NULL;
+      }
+      // pipe(pipe_fd);
+      pipe_fd[0]++;
+      pipe_fd[1]++;
+      current.out = pipe_fd[1];
+      append_vec_cmd(vec, current);
+      // reset current
+      init_cmd_t(&current);
+      current.in = pipe_fd[0];
+    }else{
+      // word
+      if(parser_state == ProcessingCommand){
+        strcpy(current.argv[current.argc++], word);
+      }else if(parser_state == ProcessingFileName){
+        // TODO: memory issue here for sure
+        // filename WITHOUT spaces TODO: can we assume that the file name has no spaces?
+        strcpy(filename, word);
+      }
+    }
   }
   append_vec_cmd(vec, current);
   return vec;
