@@ -25,21 +25,21 @@ typedef struct {
   pid_t pid;
   int argc;
   // name is argv[0]
-  char argv[max_args][max_line];
-  int fd_in;
-  int fd_out;
-} proc_t;
+  char argv[max_args][max_line / max_args]; // TODO: THIS NEEDS OPTIMIZING
+  char filev[3][max_line]; // TODO: remove thsi garbage
+} cmd_t;
 
 
-// vector of processes
+// vector of commands
 typedef struct {
-  proc_t values[max_redirections];
+  cmd_t values[max_redirections];
   // number of elements
   size_t size;
-} vec_proc;
+} vec_cmd;
 
 
-void print_vec_proc(const vec_proc* vector){
+void print_vec_cmd(const vec_cmd* vector){
+  printf("Executing line\n");
   if(vector == NULL){
     printf("NULL\n");
     return;
@@ -53,14 +53,40 @@ void print_vec_proc(const vec_proc* vector){
   }
 }
 
-// once we have parsed the line into proc_t, we can proceed to execute them
-void exec_line(vec_proc* line){
-  print_vec_proc(line);
+
+void print_cmd(const cmd_t * command){
+  printf("Program: %s\n", command->argv[0]);
+  for (size_t j = 1; j < (size_t)command->argc; j++){
+    printf("Argument: %s\n", command->argv[j]);
+  }
+
+}
+// once we have parsed the line into cmd_t, we can proceed to execute them
+void exec_line(cmd_t* line){
+  print_cmd(line);
+  pid_t pid;
+  pid = fork();
+
+  // case child
+  if (pid == 0){
+    char* exec_args[16];
+    for (int i = 0; i < line->argc; i++){
+      exec_args[i] = line->argv[i];
+    }
+    exec_args[line->argc] = NULL;
+    execvp(exec_args[0], exec_args);
+    perror("Couldn't execute command correctly!");
+  }
+  // case parent
+  else{
+    wait(NULL);
+    printf("Finished waiting for child!\n");
+  }
 }
 
 
 // line to vector of processes
-bool process_line(char* line, int line_number, vec_proc* out){
+bool process_line(char* line, int line_number, cmd_t* out){
   strip(line);
 
   size_t line_len = strlen(line);
@@ -71,7 +97,7 @@ bool process_line(char* line, int line_number, vec_proc* out){
 
   if (line_number == 0){
     if (strcmp(line, "## Uc3mshell P2") != 0){
-      fprintf(stderr, "ERROR: Unexpected first line, got %s!\n", line);
+      perror("ERROR: Unexpected first line!\n");
       _exit(-1);
     }else{
       return false;
@@ -82,38 +108,13 @@ bool process_line(char* line, int line_number, vec_proc* out){
   }
 
 
-  out->size = 0;
   char* word;
-  proc_t current = {
-    .argc = 0
-  };
-
-  int pipe_fd[2] = {0, 0};
-  int prev_pipes_stdout = 0;
+  int words_read = 0;
 
 
-  while ((word = strtok(current.argc == 0 ? line : NULL, " ")) != NULL){
-    if (strcmp(word, "|") == 0){
-      if(prev_pipes_stdout){
-        current.fd_out = pipe_fd[1];
-      }
-      prev_pipes_stdout = 1;
-      //pipe(pipe_fd);
-      current.fd_out = pipe_fd[0];
-      out->values[out->size++] = current;
-      if (out->size > max_redirections){
-        fprintf(stderr, "Too many redirections on line: %d", line_number);
-        return false;
-      }
-      current.argc = 0;
-    }else{
-      strcpy(current.argv[current.argc++], word);
-    }
-
-  }
-
-  if (current.argc != 0 && out->size < 3){
-    out->values[out->size++] = current;
+  while ((word = strtok(words_read == 0 ? line : NULL, " ")) != NULL){
+    words_read ++;
+    strcpy(out->argv[out->argc++], word);
   }
   return true;
 }
@@ -129,8 +130,8 @@ void process_file(char* filename){
   char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
   int line_number = 0;
   ssize_t bytes_read, offset;
-  vec_proc to_exec = {
-    .size = 0
+  cmd_t to_exec = {
+    .argc = 0
   };
   bool success;
 
@@ -143,7 +144,7 @@ void process_file(char* filename){
       if (f_buf[i] == '\n'){
         line[i - offset] = '\0';
         // vector is freed once executed
-        to_exec.size = 0;
+        to_exec.argc = 0;
         success = process_line(line, line_number++, &to_exec);
         if (success){
           exec_line(&to_exec);
