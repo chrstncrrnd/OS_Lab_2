@@ -33,61 +33,18 @@ typedef struct {
 
 // vector of processes
 typedef struct {
-  proc_t* values;
+  proc_t values[max_redirections];
   // number of elements
   size_t size;
-  // amount of memory allocated
-  size_t capacity;
 } vec_proc;
 
-vec_proc* create_vec_proc(){
-  vec_proc* out = malloc(sizeof(vec_proc));
-  if (out == NULL){
-    perror("ERROR: allocating memory for process vector struct!");
-    free(out);
-    _exit(-1);
-  }
-  // initial capacity of 8 is reasonable
-  out->capacity = 8;
-  out->size = 0;
-  out->values = malloc(sizeof(proc_t) * out->capacity);
-
-  // check that the memory was correctly allocated
-  if (out->values == NULL){
-    perror("ERROR: allocating memory for process vector elements!");
-    _exit(-1);
-  }
-  return out;
-}
-
-// append value to vector
-void append_vec_proc(vec_proc* vector, proc_t value){
-  if (vector->size == vector->capacity){
-    // reallocate vector
-    vector->capacity = vector->capacity * 2;
-    vector->values = realloc(vector->values, vector->capacity * sizeof(proc_t));
-    if(vector->values == NULL){
-      perror("ERROR: reallocating memory for process vectors!");
-      _exit(-1);
-    }
-  }
-  vector->values[vector->size++] = value;
-}
-
-// Don't forget to set pointer equal to null afterwards!
-void destroy_vec_proc(vec_proc* to_destroy){
-  if (to_destroy == NULL){
-    return;
-  }
-  free(to_destroy->values);
-  free(to_destroy);
-}
 
 void print_vec_proc(const vec_proc* vector){
   if(vector == NULL){
     printf("NULL\n");
     return;
   }
+
   for (size_t i = 0; i < vector->size; i++){
     printf("Program: %s\n", vector->values[i].argv[0]);
     for (size_t j = 1; j < (size_t)vector->values[i].argc; j++){
@@ -103,12 +60,12 @@ void exec_line(vec_proc* line){
 
 
 // line to vector of processes
-vec_proc* process_line(char* line, int line_number){
+bool process_line(char* line, int line_number, vec_proc* out){
   strip(line);
 
   size_t line_len = strlen(line);
   if (line_len == 0){
-    return NULL;
+    return false;
   }
 
 
@@ -117,21 +74,21 @@ vec_proc* process_line(char* line, int line_number){
       fprintf(stderr, "ERROR: Unexpected first line, got %s!\n", line);
       _exit(-1);
     }else{
-      return NULL;
+      return false;
     }
   }
   if (line[0] == '#'){
-    return NULL;
+    return false;
   }
 
 
-  vec_proc* out = create_vec_proc();
+  out->size = 0;
   char* word;
   proc_t current = {
     .argc = 0
   };
 
-  int pipe_fd[2];
+  int pipe_fd[2] = {0, 0};
   int prev_pipes_stdout = 0;
 
 
@@ -141,9 +98,13 @@ vec_proc* process_line(char* line, int line_number){
         current.fd_out = pipe_fd[1];
       }
       prev_pipes_stdout = 1;
-      pipe(pipe_fd);
+      //pipe(pipe_fd);
       current.fd_out = pipe_fd[0];
-      append_vec_proc(out, current);
+      out->values[out->size++] = current;
+      if (out->size > max_redirections){
+        fprintf(stderr, "Too many redirections on line: %d", line_number);
+        return false;
+      }
       current.argc = 0;
     }else{
       strcpy(current.argv[current.argc++], word);
@@ -151,10 +112,10 @@ vec_proc* process_line(char* line, int line_number){
 
   }
 
-  if (current.argc != 0){
-    append_vec_proc(out, current);
+  if (current.argc != 0 && out->size < 3){
+    out->values[out->size++] = current;
   }
-  return out;
+  return true;
 }
 
 
@@ -168,7 +129,13 @@ void process_file(char* filename){
   char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
   int line_number = 0;
   ssize_t bytes_read, offset;
-  vec_proc* to_exec;
+  vec_proc to_exec = {
+    .size = 0
+  };
+  bool success;
+
+
+
   // read in chunks
   while ((bytes_read = read(fd, f_buf, F_RD_BUF_SIZE)) > 0){
     offset = -(ssize_t)strlen(line);
@@ -176,10 +143,10 @@ void process_file(char* filename){
       if (f_buf[i] == '\n'){
         line[i - offset] = '\0';
         // vector is freed once executed
-        to_exec = process_line(line, line_number++);
-        if (to_exec != NULL){
-          exec_line(to_exec);
-          destroy_vec_proc(to_exec);
+        to_exec.size = 0;
+        success = process_line(line, line_number++, &to_exec);
+        if (success){
+          exec_line(&to_exec);
         }
         line[0] = '\0';
         offset = i + 1;
