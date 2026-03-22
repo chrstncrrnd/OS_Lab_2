@@ -46,9 +46,9 @@ typedef struct {
 void init_cmd_t(cmd_t* val){
   val->pid = -1;
   val->argc = 0;
-  val->in_fd = STDIN_FILENO;
-  val->out_fd = STDOUT_FILENO;
-  val->outerr_fd = STDERR_FILENO;
+  val->in_fd = -1;
+  val->out_fd = -1;
+  val->outerr_fd = -1;
   val->bg = 0;
   val->filev[0][0] = '\0';
   val->filev[1][0] = '\0';
@@ -349,30 +349,101 @@ Token get_next_token(char** input){
   }
 }
 
-
-// once we have parsed the line into cmd_t, we can proceed to execute them
-void exec_line(vec_cmd* parsed_line){
-  print_vec_cmd(parsed_line);
-  return;
+void exec_command(cmd_t command){
   pid_t pid;
   pid = fork();
-  cmd_t *line = &parsed_line->values[0];
+
+
   // case child
   if (pid == 0){
-    char* exec_args[16];
-    for (int i = 0; i < line->argc; i++){
-      exec_args[i] = line->argv[i];
+    char* exec_args[max_args];
+    for (int i = 0; i < command.argc; i++){
+      exec_args[i] = command.argv[i];
     }
-    exec_args[line->argc] = NULL;
+    exec_args[command.argc] = NULL;
+    // Replace STDIN
+    if(command.in_fd != -1){
+      int errstdin = close(STDIN_FILENO);
+      if(errstdin < 0){
+        perror("Error closing stdin!");
+        _exit(-1);
+      }
+
+      int errdup = dup(command.in_fd);
+      if(errdup < 0){
+        perror("Error duping file descriptor!");
+        _exit(-1);
+      }
+
+    }
+
+    // Replace STDOUT
+    if(command.out_fd != -1){
+      int errstdin = close(STDOUT_FILENO);
+      if(errstdin < 0){
+        perror("Error closing stdout!");
+        _exit(-1);
+      }
+
+      int errdup = dup(command.out_fd);
+      if(errdup < 0){
+        perror("Error duping file descriptor!");
+        _exit(-1);
+      }
+
+    }
+
+    // Replace STDERR
+    if(command.outerr_fd != -1){
+      int errstdin = close(STDERR_FILENO);
+      if(errstdin < 0){
+        perror("Error closing stderr!");
+        _exit(-1);
+      }
+
+      int errdup = dup(command.outerr_fd);
+      if(errdup < 0){
+        perror("Error duping file descriptor!");
+        _exit(-1);
+      }
+    }
+
+    // execute the actual program
     execvp(exec_args[0], exec_args);
     perror("Couldn't execute command correctly!");
   }
   // case parent
   else{
+    if (command.in_fd != -1) {
+      close(command.in_fd);
+    }
+    if (command.out_fd != -1) {
+      close(command.out_fd);
+    }
+    if (command.outerr_fd != -1) {
+      close(command.outerr_fd);
+    }
+  }
+
+}
+
+
+
+// once we have parsed the line into cmd_t, we can proceed to execute them
+void exec_line(vec_cmd* parsed_line){
+  //print_vec_cmd(parsed_line);
+  for (size_t i = 0; i < parsed_line->size; i ++){
+    exec_command(parsed_line->values[i]);
+  }
+
+  // wait for children
+  for (size_t i = 0; i < parsed_line->size; i++){
     wait(NULL);
-    printf("Finished waiting for child!\n");
   }
 }
+
+
+
 
 typedef enum{
   PS_EXPECT_FILENAME_OUT,
@@ -419,6 +490,10 @@ vec_cmd* parse_line(char* line, int line_number){
   ParserState parser_state = PS_EXPECT_CMD;
   cmd_t current_command;
   init_cmd_t(&current_command);
+
+  // 0 to read, 1 to write
+  int pipe_fd[2];
+
   // we get a TOKEN_NULL once we have reached the end of the input
   while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
     switch(latest_token.token){
@@ -431,9 +506,12 @@ vec_cmd* parse_line(char* line, int line_number){
         if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
           ParserSyntaxError(line_number, out)
         }
-        parser_state = PS_EXPECT_CMD_PIPED;
+        pipe(pipe_fd);
+        current_command.out_fd = pipe_fd[1];
         append_vec_cmd(out, current_command);
         init_cmd_t(&current_command);
+        current_command.in_fd = pipe_fd[0];
+        parser_state = PS_EXPECT_CMD_PIPED;
         break;
       case TOKEN_BACKGROUND:
         if (parser_state != PS_EXPECT_ARGS){
