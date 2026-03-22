@@ -12,7 +12,7 @@
 #define max_redirections 3 // stdin, stdout, stderr
 #define max_args 15
 #define max_line 1024
-
+#define token_max_len 256
 // File Read Buffer size. Must be at least max_line
 #define F_RD_BUF_SIZE 1024
 #define true 1
@@ -127,6 +127,206 @@ void print_vec_cmd(const vec_cmd* vector){
 }
 
 
+typedef enum{
+  LS_INITIAL,
+  LS_BUILDING_WORD_QUOTES,
+  LS_BUILDING_WORD,
+  LS_BUILDING_ERR_REDIR
+} LexerState;
+
+
+typedef enum{
+  TOKEN_WORD,
+  TOKEN_PIPE,
+  TOKEN_REDIR_IN,
+  TOKEN_REDIR_OUT,
+  TOKEN_REDIR_ERR,
+  TOKEN_NULL, // '\0'
+  TOKEN_ERROR
+} TokenType;
+
+
+typedef struct {
+  TokenType token;
+  char lexeme[token_max_len];
+} Token;
+
+
+bool is_nonspace(char c){
+  return c != ' ';
+}
+
+bool is_nonreserved(char c){
+  return c != '>' && c != '<' && c != '!' && c != '|' && c != '"';
+}
+
+// finite automata for the lexer
+Token get_next_token(char** input){
+
+  char c;
+
+  char buffer[token_max_len] = {0}; // TODO: this needs optimization
+  size_t current_token_len = 0;
+  LexerState state = LS_INITIAL;
+
+
+  while((c = (*input)[0]) != '\0'){
+    switch(state){
+      case LS_INITIAL:
+        if(c == ' '){
+          (*input) ++;
+          continue;
+        }
+        else if(c == '|'){
+          (*input) ++;
+          return (Token){
+            .token = TOKEN_PIPE,
+            .lexeme = ""
+          };
+        }
+        else if(c == '>'){
+          (*input) ++;
+          return (Token){
+            .token = TOKEN_REDIR_OUT,
+            .lexeme = ""
+          };
+        }
+        else if(c == '<'){
+          (*input) ++;
+          return (Token){
+            .token = TOKEN_REDIR_IN,
+            .lexeme = ""
+          };
+        }
+        else if(c == '!'){
+          (*input) ++;
+          state = LS_BUILDING_ERR_REDIR;
+          continue;
+        }
+        else if(is_nonspace(c) && is_nonreserved(c)){
+          state = LS_BUILDING_WORD;
+          if (current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          buffer[current_token_len++] = c;
+          (*input) ++;
+          continue;
+        }
+        else if(c == '"'){
+          (*input)++;
+          state = LS_BUILDING_WORD_QUOTES;
+          continue;
+        }
+        // let caller handle syntax error!
+        return (Token){
+          .token = TOKEN_ERROR,
+          .lexeme = ""
+        };
+        break;
+      case LS_BUILDING_ERR_REDIR:
+        if (c == '>'){
+          (*input)++;
+          return (Token){
+            .token = TOKEN_REDIR_ERR,
+            .lexeme = ""
+          };
+        }
+        return (Token){
+          .token = TOKEN_ERROR,
+          .lexeme = ""
+        };
+        break;
+      case LS_BUILDING_WORD:
+        if(is_nonreserved(c) && is_nonspace(c)){
+          if (current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          buffer[current_token_len++] = c;
+          (*input) ++;
+          continue;
+        }else if(c == ' ' || c == '\0' || (is_nonreserved(c) == 0)){
+          Token out = {
+            .token = TOKEN_WORD,
+            .lexeme = ""
+          };
+          // make sure that we don't overflow buffer to append null terminator
+          if(current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          // put our buffer into the token struct
+          buffer[current_token_len ++] = '\0';
+          strcpy(out.lexeme, buffer);
+          return out;
+        }
+        return (Token){
+          .token = TOKEN_ERROR,
+          .lexeme = "",
+        };
+        break;
+      case LS_BUILDING_WORD_QUOTES:
+        if(c == '"'){
+          Token out = {
+            .token = TOKEN_WORD,
+            .lexeme = ""
+          };
+          // make sure that we don't overflow buffer to append null terminator
+          if(current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          // put our buffer into the token struct
+          buffer[current_token_len ++] = '\0';
+          (*input) ++;
+          strcpy(out.lexeme, buffer);
+          return out;
+        }else if(c == '\0'){
+          // we opened some quotes but never closed them!
+          return (Token){
+            .token = TOKEN_ERROR,
+            .lexeme = ""
+          };
+        }else {
+          // make sure that we don't overflow buffer to append new character
+          if(current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          // put our buffer into the token struct
+          buffer[current_token_len ++] = c;
+          (*input) ++;
+        }
+        break;
+      default:
+        printf("AAAAAA");
+        return (Token){
+          .token = TOKEN_ERROR,
+          .lexeme = ""
+        };
+    }
+  }
+  return (Token){
+    .token = TOKEN_NULL,
+    .lexeme = ""
+  };
+}
 
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
@@ -153,10 +353,8 @@ void exec_line(vec_cmd* parsed_line){
   }
 }
 
-typedef enum{
-  ProcessingCommand,
-  ProcessingFileName
-} ParserState;
+
+
 
 // line to vector of processes
 vec_cmd* parse_line(char* line, int line_number){
@@ -179,49 +377,37 @@ vec_cmd* parse_line(char* line, int line_number){
   if (line[0] == '#'){
     return NULL;
   }
-
-
-  char* word;
-  int commands_read = 0;
-
-  vec_cmd* vec = create_vec_cmd();
-  cmd_t current;
-  init_cmd_t(&current);
-
-  // 0 = read, 1, = write
-  int pipe_fd[2] = {0, 0};
-  ParserState parser_state = ProcessingCommand;
-  char filename[max_line];
-
-  while ((word = strtok(words_read++ == 0 ? line : NULL, " ")) != NULL){
-    if (strcmp(word, "|") == 0){
-      // pipe
-      if (current.argc == 0){
-        fprintf(stderr, "Syntax error on line %d!", line_number);
-        destroy_vec_cmd(vec);
-        return NULL;
-      }
-      // pipe(pipe_fd);
-      pipe_fd[0]++;
-      pipe_fd[1]++;
-      current.out = pipe_fd[1];
-      append_vec_cmd(vec, current);
-      // reset current
-      init_cmd_t(&current);
-      current.in = pipe_fd[0];
-    }else{
-      // word
-      if(parser_state == ProcessingCommand){
-        strcpy(current.argv[current.argc++], word);
-      }else if(parser_state == ProcessingFileName){
-        // TODO: memory issue here for sure
-        // filename WITHOUT spaces TODO: can we assume that the file name has no spaces?
-        strcpy(filename, word);
-      }
+  char *store = line;
+  Token latest_token;
+  printf("-------------Line %d-------------\n", line_number);
+  while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
+    printf("Token: \n\t");
+    switch(latest_token.token){
+      case TOKEN_WORD:
+        printf("TOKEN_WORD");
+        break;
+      case TOKEN_ERROR:
+        printf("TOKEN_ERROR");
+        break;
+      case TOKEN_REDIR_ERR:
+        printf("TOKEN_REDIR_ERR");
+        break;
+      case TOKEN_REDIR_IN:
+        printf("TOKEN_REDIR_IN");
+        break;
+      case TOKEN_REDIR_OUT:
+        printf("TOKEN_REDIR_OUT");
+        break;
+      case TOKEN_PIPE:
+        printf("TOKEN_PIPE");
+        break;
+      case TOKEN_NULL:
+        printf("TOKEN_NULL");
     }
+    printf("\nLexeme:\n\t");
+    printf("%s\n", latest_token.lexeme);
   }
-  append_vec_cmd(vec, current);
-  return vec;
+  return NULL;
 }
 
 
