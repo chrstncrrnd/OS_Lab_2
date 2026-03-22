@@ -23,7 +23,7 @@
 // Really doesn't need to be a macro but i wanted to mess around
 // with macros
 #define ParserSyntaxError(line_number, out) { \
-  fprintf(stderr, "Syntax error on line %d!", line_number);\
+  fprintf(stderr, "Syntax error on line %d!\n", line_number);\
   destroy_vec_cmd(out);\
   return NULL;\
 }
@@ -431,7 +431,8 @@ void exec_command(cmd_t command){
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
-  //print_vec_cmd(parsed_line);
+  print_vec_cmd(parsed_line);
+  return;
   for (size_t i = 0; i < parsed_line->size; i ++){
     exec_command(parsed_line->values[i]);
   }
@@ -467,7 +468,7 @@ vec_cmd* parse_line(char* line, int line_number){
   }
 
   // check that the first line is as specified
-  if (line_number == 0){
+  if (line_number == 1){
     if (strcmp(line, "## Uc3mshell P2") != 0){
       perror("ERROR: Unexpected first line!\n");
       _exit(-1);
@@ -500,7 +501,6 @@ vec_cmd* parse_line(char* line, int line_number){
       case TOKEN_ERROR:
         // ParserSyntaxError macro returns automatically
         ParserSyntaxError(line_number, out)
-        printf("THE MACRO DOESN'T RETURN HEEELLP");
         break;
       case TOKEN_PIPE:
         if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
@@ -543,7 +543,6 @@ vec_cmd* parse_line(char* line, int line_number){
           current_command.argc = 1;
           parser_state = PS_EXPECT_ARGS;
         }else if (parser_state == PS_EXPECT_CMD_PIPED){
-          // TODO: handle pipes
           strcpy(current_command.argv[0], latest_token.lexeme);
           current_command.argc = 1;
           parser_state = PS_EXPECT_ARGS;
@@ -568,6 +567,9 @@ vec_cmd* parse_line(char* line, int line_number){
         ParserSyntaxError(line_number, out);
         break;
     }
+  }
+  if(parser_state != PS_EXPECT_ARGS){
+    ParserSyntaxError(line_number, out)
   }
   if (current_command.argc != 0){
     append_vec_cmd(out, current_command);
