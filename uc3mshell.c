@@ -38,7 +38,7 @@ typedef struct {
   int out_fd;
   int outerr_fd;
   bool bg;
-  char filev[token_max_len][3];
+  char filev[3][token_max_len];
 } cmd_t;
 
 
