@@ -142,7 +142,8 @@ typedef enum{
   TOKEN_REDIR_OUT,
   TOKEN_REDIR_ERR,
   TOKEN_NULL, // '\0'
-  TOKEN_ERROR
+  TOKEN_ERROR,
+  TOKEN_BACKGROUND
 } TokenType;
 
 
@@ -170,7 +171,8 @@ Token get_next_token(char** input){
   LexerState state = LS_INITIAL;
 
 
-  while((c = (*input)[0]) != '\0'){
+  while(1){
+    c = **input;
     switch(state){
       case LS_INITIAL:
         if(c == ' '){
@@ -197,11 +199,22 @@ Token get_next_token(char** input){
             .token = TOKEN_REDIR_IN,
             .lexeme = ""
           };
+        }else if(c == '&'){
+          (*input) ++;
+          return (Token){
+            .token = TOKEN_BACKGROUND,
+            .lexeme = ""
+          };
         }
         else if(c == '!'){
           (*input) ++;
           state = LS_BUILDING_ERR_REDIR;
           continue;
+        }else if (c == '\0'){
+          return (Token){
+            .token = TOKEN_NULL,
+            .lexeme = "\0",
+          };
         }
         else if(is_nonspace(c) && is_nonreserved(c)){
           state = LS_BUILDING_WORD;
@@ -241,18 +254,8 @@ Token get_next_token(char** input){
         };
         break;
       case LS_BUILDING_WORD:
-        if(is_nonreserved(c) && is_nonspace(c)){
-          if (current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
-            return (Token){
-              .token = TOKEN_ERROR,
-              .lexeme = ""
-            };
-          }
-          buffer[current_token_len++] = c;
-          (*input) ++;
-          continue;
-        }else if(c == ' ' || c == '\0' || (is_nonreserved(c) == 0)){
+        // a space, null terminator or reserverd character
+        if(c == ' ' || c == '\0' || (is_nonreserved(c) == 0)){
           Token out = {
             .token = TOKEN_WORD,
             .lexeme = ""
@@ -269,6 +272,18 @@ Token get_next_token(char** input){
           buffer[current_token_len ++] = '\0';
           strcpy(out.lexeme, buffer);
           return out;
+        }
+        else if(is_nonreserved(c)){
+          if (current_token_len >= token_max_len){
+            fprintf(stderr, "Error processing line: token too long!");
+            return (Token){
+              .token = TOKEN_ERROR,
+              .lexeme = ""
+            };
+          }
+          buffer[current_token_len++] = c;
+          (*input) ++;
+          continue;
         }
         return (Token){
           .token = TOKEN_ERROR,
@@ -323,7 +338,7 @@ Token get_next_token(char** input){
     }
   }
   return (Token){
-    .token = TOKEN_NULL,
+    .token = TOKEN_ERROR,
     .lexeme = ""
   };
 }
@@ -358,6 +373,7 @@ void exec_line(vec_cmd* parsed_line){
 
 // line to vector of processes
 vec_cmd* parse_line(char* line, int line_number){
+  line_number ++; // so that our debug messasges aren't 0 indexed for lines
   strip(line);
 
   size_t line_len = strlen(line);
@@ -381,7 +397,7 @@ vec_cmd* parse_line(char* line, int line_number){
   Token latest_token;
   printf("-------------Line %d-------------\n", line_number);
   while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
-    printf("Token: \n\t");
+    printf("Token: (");
     switch(latest_token.token){
       case TOKEN_WORD:
         printf("TOKEN_WORD");
@@ -403,9 +419,16 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
       case TOKEN_NULL:
         printf("TOKEN_NULL");
+        break;
+      case TOKEN_BACKGROUND:
+        printf("TOKEN_BACKGROUND");
+        break;
     }
-    printf("\nLexeme:\n\t");
-    printf("%s\n", latest_token.lexeme);
+    printf(", \"%s\")\n", latest_token.lexeme);
+    if (latest_token.token == TOKEN_ERROR){
+      fprintf(stderr,"SYNTAX ERROR on line %d!\n", line_number);
+      return NULL;
+    }
   }
   return NULL;
 }
