@@ -20,25 +20,35 @@
 #define bool int
 
 
+// Really doesn't need to be a macro but i wanted to mess around
+// with macros
+#define ParserSyntaxError(line_number, out) { \
+  fprintf(stderr, "Syntax error on line %d!", line_number);\
+  destroy_vec_cmd(out);\
+  return NULL;\
+}
+
 // command struct (used for managing processes)
 typedef struct {
   pid_t pid;
   int argc;
   // name is argv[0]
   char argv[max_args][max_line / max_args]; // TODO: THIS NEEDS OPTIMIZING
-  int in;
-  int out;
-  int outerr;
+  int in_fd;
+  int out_fd;
+  int outerr_fd;
   bool bg;
-  char filev[40][3];
+  char filev[token_max_len][3];
 } cmd_t;
 
+
+// reset or initialize the struct
 void init_cmd_t(cmd_t* val){
   val->pid = -1;
   val->argc = 0;
-  val->in = STDIN_FILENO;
-  val->out = STDOUT_FILENO;
-  val->outerr = STDERR_FILENO;
+  val->in_fd = STDIN_FILENO;
+  val->out_fd = STDOUT_FILENO;
+  val->outerr_fd = STDERR_FILENO;
   val->bg = 0;
   val->filev[0][0] = '\0';
   val->filev[1][0] = '\0';
@@ -82,7 +92,7 @@ vec_cmd* create_vec_cmd(){
 // append value to vector
 void append_vec_cmd(vec_cmd* vector, cmd_t value){
   if (vector->size == vector->capacity){
-    // reallocate vector
+    // reallocate vector, we multiply capacity by two on each reallocation
     vector->capacity = vector->capacity * 2;
     vector->values = realloc(vector->values, vector->capacity * sizeof(cmd_t));
     if(vector->values == NULL){
@@ -104,7 +114,7 @@ void destroy_vec_cmd(vec_cmd* to_destroy){
   free(to_destroy);
 }
 
-
+// some debugging stuff
 void print_cmd(const cmd_t * command){
   printf("------------------------\n");
   printf("Program: %s\n", command->argv[0]);
@@ -112,7 +122,9 @@ void print_cmd(const cmd_t * command){
     printf("\tArgument: %s\n", command->argv[j]);
   }
   printf("File Descriptors:\n");
-  printf("\tin: %d\n\tout: %d\n\touterr: %d\n\n", command->in, command->out, command->outerr);
+  printf("\tin: %d\n\tout: %d\n\touterr: %d\n\n", command->in_fd, command->out_fd, command->outerr_fd);
+  printf("Filev:\n");
+  printf("\t0: %s\n\t1: %s\n\t2: %s\n", command->filev[0], command->filev[1], command->filev[2]);
 }
 
 void print_vec_cmd(const vec_cmd* vector){
@@ -126,7 +138,7 @@ void print_vec_cmd(const vec_cmd* vector){
   }
 }
 
-
+// Lexer states
 typedef enum{
   LS_INITIAL,
   LS_BUILDING_WORD_QUOTES,
@@ -134,7 +146,7 @@ typedef enum{
   LS_BUILDING_ERR_REDIR
 } LexerState;
 
-
+// Token types
 typedef enum{
   TOKEN_WORD,
   TOKEN_PIPE,
@@ -146,12 +158,13 @@ typedef enum{
   TOKEN_BACKGROUND
 } TokenType;
 
-
+// token that gets passed to parser
 typedef struct {
+  // the type of token read
   TokenType token;
+  // the actual text read (since we need to extract information on commands)
   char lexeme[token_max_len];
 } Token;
-
 
 bool is_nonspace(char c){
   return c != ' ';
@@ -170,12 +183,13 @@ Token get_next_token(char** input){
   size_t current_token_len = 0;
   LexerState state = LS_INITIAL;
 
-
+  // we can guarantee that this does not continue infinitely (probably hehehe)
   while(1){
     c = **input;
     switch(state){
       case LS_INITIAL:
         if(c == ' '){
+          // consume character
           (*input) ++;
           continue;
         }
@@ -183,6 +197,7 @@ Token get_next_token(char** input){
           (*input) ++;
           return (Token){
             .token = TOKEN_PIPE,
+            // TODO: check if it is neccessary here to set value for lexeme
             .lexeme = ""
           };
         }
@@ -289,6 +304,7 @@ Token get_next_token(char** input){
           .token = TOKEN_ERROR,
           .lexeme = "",
         };
+        // break is redundant since we have already returned above but best practice
         break;
       case LS_BUILDING_WORD_QUOTES:
         if(c == '"'){
@@ -329,18 +345,8 @@ Token get_next_token(char** input){
           (*input) ++;
         }
         break;
-      default:
-        printf("AAAAAA");
-        return (Token){
-          .token = TOKEN_ERROR,
-          .lexeme = ""
-        };
     }
   }
-  return (Token){
-    .token = TOKEN_ERROR,
-    .lexeme = ""
-  };
 }
 
 
@@ -368,7 +374,14 @@ void exec_line(vec_cmd* parsed_line){
   }
 }
 
-
+typedef enum{
+  PS_EXPECT_FILENAME_OUT,
+  PS_EXPECT_FILENAME_ERR,
+  PS_EXPECT_FILENAME_INP,
+  PS_EXPECT_ARGS,
+  PS_EXPECT_CMD,
+  PS_EXPECT_CMD_PIPED
+} ParserState;
 
 
 // line to vector of processes
@@ -377,11 +390,12 @@ vec_cmd* parse_line(char* line, int line_number){
   strip(line);
 
   size_t line_len = strlen(line);
+  // skip empty or whitespace lines
   if (line_len == 0){
     return NULL;
   }
 
-
+  // check that the first line is as specified
   if (line_number == 0){
     if (strcmp(line, "## Uc3mshell P2") != 0){
       perror("ERROR: Unexpected first line!\n");
@@ -390,50 +404,100 @@ vec_cmd* parse_line(char* line, int line_number){
       return NULL;
     }
   }
+  // if line is comment, skip
   if (line[0] == '#'){
     return NULL;
   }
+
+  // the vector we return
+  vec_cmd* out = create_vec_cmd();
+
+
+  // pointer for lexer input
   char *store = line;
   Token latest_token;
-  printf("-------------Line %d-------------\n", line_number);
+  ParserState parser_state = PS_EXPECT_CMD;
+  cmd_t current_command;
+  init_cmd_t(&current_command);
+  // we get a TOKEN_NULL once we have reached the end of the input
   while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
-    printf("Token: (");
     switch(latest_token.token){
-      case TOKEN_WORD:
-        printf("TOKEN_WORD");
-        break;
       case TOKEN_ERROR:
-        printf("TOKEN_ERROR");
-        break;
-      case TOKEN_REDIR_ERR:
-        printf("TOKEN_REDIR_ERR");
-        break;
-      case TOKEN_REDIR_IN:
-        printf("TOKEN_REDIR_IN");
-        break;
-      case TOKEN_REDIR_OUT:
-        printf("TOKEN_REDIR_OUT");
+        // ParserSyntaxError macro returns automatically
+        ParserSyntaxError(line_number, out)
+        printf("THE MACRO DOESN'T RETURN HEEELLP");
         break;
       case TOKEN_PIPE:
-        printf("TOKEN_PIPE");
-        break;
-      case TOKEN_NULL:
-        printf("TOKEN_NULL");
+        if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
+          ParserSyntaxError(line_number, out)
+        }
+        parser_state = PS_EXPECT_CMD_PIPED;
+        append_vec_cmd(out, current_command);
+        init_cmd_t(&current_command);
         break;
       case TOKEN_BACKGROUND:
-        printf("TOKEN_BACKGROUND");
+        if (parser_state != PS_EXPECT_ARGS){
+          ParserSyntaxError(line_number, out)
+        }
+        current_command.bg = 1;
+        break;
+      case TOKEN_REDIR_OUT:
+        if(parser_state != PS_EXPECT_ARGS){
+          ParserSyntaxError(line_number, out)
+        }
+        parser_state = PS_EXPECT_FILENAME_OUT;
+        break;
+      case TOKEN_REDIR_IN:
+        if(parser_state != PS_EXPECT_ARGS){
+          ParserSyntaxError(line_number, out)
+        }
+        parser_state = PS_EXPECT_FILENAME_INP;
+        break;
+      case TOKEN_REDIR_ERR:
+        if(parser_state != PS_EXPECT_ARGS){
+          ParserSyntaxError(line_number, out)
+        }
+        parser_state = PS_EXPECT_FILENAME_ERR;
+        break;
+      case TOKEN_WORD:
+        if(parser_state == PS_EXPECT_CMD){
+          strcpy(current_command.argv[0], latest_token.lexeme);
+          current_command.argc = 1;
+          parser_state = PS_EXPECT_ARGS;
+        }else if (parser_state == PS_EXPECT_CMD_PIPED){
+          // TODO: handle pipes
+          strcpy(current_command.argv[0], latest_token.lexeme);
+          current_command.argc = 1;
+          parser_state = PS_EXPECT_ARGS;
+        }else if(parser_state == PS_EXPECT_ARGS){
+          strcpy(current_command.argv[current_command.argc++], latest_token.lexeme);
+        }else if(parser_state == PS_EXPECT_FILENAME_INP){
+          strcpy(current_command.filev[0], latest_token.lexeme);
+          parser_state = PS_EXPECT_ARGS;
+        }else if (parser_state == PS_EXPECT_FILENAME_OUT){
+          strcpy(current_command.filev[1], latest_token.lexeme);
+          parser_state = PS_EXPECT_ARGS;
+        }else if(parser_state == PS_EXPECT_FILENAME_ERR){
+          strcpy(current_command.filev[2], latest_token.lexeme);
+          parser_state = PS_EXPECT_ARGS;
+        }else{
+          fprintf(stderr, "Okay this shouldn't be happening!");
+          ParserSyntaxError(line_number, out)
+        }
+        break;
+      case TOKEN_NULL:
+        // We can't get this token but for completion of cases its included as a syntax error
+        ParserSyntaxError(line_number, out);
         break;
     }
-    printf(", \"%s\")\n", latest_token.lexeme);
-    if (latest_token.token == TOKEN_ERROR){
-      fprintf(stderr,"SYNTAX ERROR on line %d!\n", line_number);
-      return NULL;
-    }
   }
-  return NULL;
+  if (current_command.argc != 0){
+    append_vec_cmd(out, current_command);
+  }
+  return out;
 }
 
-
+// open and process the file
 void process_file(char* filename){
   int fd = open(filename, O_RDONLY);
 
@@ -468,6 +532,11 @@ void process_file(char* filename){
       line[i - offset] = f_buf[i];
     }
   }
+  // close file
+  int err = close(fd);
+  if (err < 0){
+    perror("Failed to close file!");
+  }
 }
 
 void print_usage(char* bin_name){
@@ -476,6 +545,7 @@ void print_usage(char* bin_name){
 
 
 int main(int argc, char *argv[]) {
+  // we need a file name supplied
   if (argc != 2){
     print_usage(argv[0]);
     return -1;
