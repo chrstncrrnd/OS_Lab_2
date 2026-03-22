@@ -1,4 +1,3 @@
-#include <stddef.h>
 #include <string.h>
 
 int is_whitespace(char c){
