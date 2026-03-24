@@ -352,7 +352,7 @@ Token get_next_token(char** input){
   }
 }
 
-void exec_command(cmd_t command){
+void exec_command(cmd_t* command){
   pid_t pid;
   pid = fork();
 
@@ -360,19 +360,19 @@ void exec_command(cmd_t command){
   // case child
   if (pid == 0){
     char* exec_args[max_args];
-    for (int i = 0; i < command.argc; i++){
-      exec_args[i] = command.argv[i];
+    for (int i = 0; i < command->argc; i++){
+      exec_args[i] = command->argv[i];
     }
-    exec_args[command.argc] = NULL;
+    exec_args[command->argc] = NULL;
     // Replace STDIN
-    if(command.in_fd != -1){
+    if(command->in_fd != -1){
       int errstdin = close(STDIN_FILENO);
       if(errstdin < 0){
         perror("Error closing stdin!");
         _exit(-1);
       }
 
-      int errdup = dup(command.in_fd);
+      int errdup = dup(command->in_fd);
       if(errdup < 0){
         perror("Error duping file descriptor!");
         _exit(-1);
@@ -381,14 +381,14 @@ void exec_command(cmd_t command){
     }
 
     // Replace STDOUT
-    if(command.out_fd != -1){
+    if(command->out_fd != -1){
       int errstdin = close(STDOUT_FILENO);
       if(errstdin < 0){
         perror("Error closing stdout!");
         _exit(-1);
       }
 
-      int errdup = dup(command.out_fd);
+      int errdup = dup(command->out_fd);
       if(errdup < 0){
         perror("Error duping file descriptor!");
         _exit(-1);
@@ -397,14 +397,14 @@ void exec_command(cmd_t command){
     }
 
     // Replace STDERR
-    if(command.outerr_fd != -1){
+    if(command->outerr_fd != -1){
       int errstdin = close(STDERR_FILENO);
       if(errstdin < 0){
         perror("Error closing stderr!");
         _exit(-1);
       }
 
-      int errdup = dup(command.outerr_fd);
+      int errdup = dup(command->outerr_fd);
       if(errdup < 0){
         perror("Error duping file descriptor!");
         _exit(-1);
@@ -417,14 +417,17 @@ void exec_command(cmd_t command){
   }
   // case parent
   else{
-    if (command.in_fd != -1) {
-      close(command.in_fd);
+
+    // update the command's pid
+    command->pid = pid;
+    if (command->in_fd != -1) {
+      close(command->in_fd);
     }
-    if (command.out_fd != -1) {
-      close(command.out_fd);
+    if (command->out_fd != -1) {
+      close(command->out_fd);
     }
-    if (command.outerr_fd != -1) {
-      close(command.outerr_fd);
+    if (command->outerr_fd != -1) {
+      close(command->outerr_fd);
     }
   }
 
@@ -434,15 +437,19 @@ void exec_command(cmd_t command){
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
-  print_vec_cmd(parsed_line);
-  return;
+  // print_vec_cmd(parsed_line);
+  // return;
   for (size_t i = 0; i < parsed_line->size; i ++){
-    exec_command(parsed_line->values[i]);
+    exec_command(&(parsed_line->values[i]));
   }
 
   // wait for children
   for (size_t i = 0; i < parsed_line->size; i++){
-    wait(NULL);
+    // TODO: change this to use the wait systemcall
+    // wait for only non-backgrounded processes
+    if(parsed_line->values[i].bg == 0){
+      waitpid(parsed_line->values[i].pid, NULL, 0);
+    }
   }
 }
 
