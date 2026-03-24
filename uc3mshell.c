@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include "str_strip.h"
 
+// TODO: eliminar todo de abajo y este
+// TODO: eliminar TODOs
 #define max_commands 10
 #define max_redirections 3 // stdin, stdout, stderr
 #define max_args 15
@@ -25,6 +27,7 @@
 #define ParserSyntaxError(line_number, out) { \
   fprintf(stderr, "Syntax error on line %d!\n", line_number);\
   destroy_vec_cmd(out);\
+  out = NULL;\
   return NULL;\
 }
 
@@ -68,7 +71,7 @@ typedef struct {
 
 // create the vector of commands
 vec_cmd* create_vec_cmd(){
-  vec_cmd* out = malloc(sizeof(vec_cmd));
+  vec_cmd* out = (vec_cmd*)malloc(sizeof(vec_cmd));
   if (out == NULL){
     perror("ERROR: allocating memory for process vector struct!");
     free(out);
@@ -77,7 +80,7 @@ vec_cmd* create_vec_cmd(){
   // initial capacity of 4 is reasonable (won't need to reallocate usually)
   out->capacity = 4;
   out->size = 0;
-  out->values = malloc(sizeof(cmd_t) * out->capacity);
+  out->values = (cmd_t*)malloc(sizeof(cmd_t) * out->capacity);
 
   // check that the memory was correctly allocated
   if (out->values == NULL){
@@ -94,7 +97,7 @@ void append_vec_cmd(vec_cmd* vector, cmd_t value){
   if (vector->size == vector->capacity){
     // reallocate vector, we multiply capacity by two on each reallocation
     vector->capacity = vector->capacity * 2;
-    vector->values = realloc(vector->values, vector->capacity * sizeof(cmd_t));
+    vector->values = (cmd_t*)realloc(vector->values, vector->capacity * sizeof(cmd_t));
     if(vector->values == NULL){
       perror("ERROR: reallocating memory for process vectors!");
       _exit(-1);
@@ -470,7 +473,8 @@ vec_cmd* parse_line(char* line, int line_number){
   // check that the first line is as specified
   if (line_number == 1){
     if (strcmp(line, "## Uc3mshell P2") != 0){
-      perror("ERROR: Unexpected first line!\n");
+      // TODO: preguntar profe si esto deberia ser perror como en el enunciado
+      fprintf(stderr,"ERROR: Unexpected first line!\n");
       _exit(-1);
     }else{
       return NULL;
@@ -632,4 +636,3 @@ int main(int argc, char *argv[]) {
   }
   process_file(argv[1]);
 }
-
