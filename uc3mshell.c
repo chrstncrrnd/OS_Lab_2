@@ -53,6 +53,14 @@
   } \
 } \
 
+
+// utility function to close a file descriptor and print an error if it fails (does not exit)
+void close_print_error(int fd){
+  int err = close(fd);
+  if(err < 0){
+    perror("Error closing a file!");
+  }
+}
 // command struct (used for managing processes)
 typedef struct {
   pid_t pid;
@@ -74,7 +82,7 @@ void init_cmd_t(cmd_t* val){
   val->in_fd = -1;
   val->out_fd = -1;
   val->outerr_fd = -1;
-  val->bg = 0;
+  val->bg = false;
   val->filev[0][0] = '\0';
   val->filev[1][0] = '\0';
   val->filev[2][0] = '\0';
@@ -90,13 +98,12 @@ typedef struct {
 } vec_cmd;
 
 
-
 // create the vector of commands
 vec_cmd* create_vec_cmd(){
   vec_cmd* out = (vec_cmd*)malloc(sizeof(vec_cmd));
   if (out == NULL){
     perror("ERROR: allocating memory for process vector struct!");
-    free(out);
+    // we really can't continue running if we cannot allocate memory
     _exit(-1);
   }
   // initial capacity of 4 is reasonable (won't need to reallocate usually)
@@ -107,6 +114,7 @@ vec_cmd* create_vec_cmd(){
   // check that the memory was correctly allocated
   if (out->values == NULL){
     perror("ERROR: allocating memory for process vector elements!");
+    // we don't need a free here because memory will be cleaned up on exit
     _exit(-1);
   }
   return out;
@@ -135,9 +143,79 @@ void destroy_vec_cmd(vec_cmd* to_destroy){
   if (to_destroy == NULL){
     return;
   }
+  for (int i = 0; i < to_destroy->size; i++){
+    // we need to make sure that we close all the file descriptors when we destroy this array
+    if(to_destroy->values[i].in_fd != -1){
+      close_print_error(to_destroy->values[i].in_fd);
+    }
+    if(to_destroy->values[i].out_fd != -1){
+      close_print_error(to_destroy->values[i].out_fd);
+    }
+    if(to_destroy->values[i].outerr_fd != -1){
+      close_print_error(to_destroy->values[i].outerr_fd);
+    }
+  }
   free(to_destroy->values);
   free(to_destroy);
 }
+
+// dynamically sized vector of process ids (used for backgrounding processes)
+typedef struct{
+  // pointer to first value
+  pid_t* values;
+  // number of items in list
+  size_t size;
+  // amount of items allocated
+  size_t capacity;
+} vec_pid;
+
+
+// create the actual pid vector (allocated memory)
+vec_pid* create_vec_pid(){
+  vec_pid* out = (vec_pid*) malloc(sizeof(vec_pid));
+
+  if (out == NULL){
+    perror("Error allocating memory for PID vector structure!");
+    _exit(-1);
+  }
+  // we can have an initial capacity of 2 since this array is likey going to be small
+  out->capacity = 2;
+  out->size = 0;
+  out->values = (pid_t*) malloc(sizeof(pid_t) * out->capacity);
+
+  if(out->values == NULL){
+    perror("Error allocating memory for PID vector values!");
+    _exit(-1);
+  }
+
+  return out;
+}
+
+
+// append a pid to the vector
+void append_vec_pid(vec_pid* vector, pid_t value){
+  if (vector->size == vector->capacity){
+    vector->capacity = vector->capacity * 2;
+    vector->values = (pid_t*) realloc(vector->values, sizeof(pid_t) * vector->capacity);
+    if(vector->values == NULL){
+      perror("Error reallocating memory for vector of PIDs");
+      _exit(-1);
+    }
+  }
+  vector->values[vector->size++] = value;
+}
+
+// remember to set pointer to NULL after
+void destroy_vec_pid(vec_pid* vector){
+  if(vector == NULL){
+    return;
+  }
+  free(vector->values);
+  free(vector);
+}
+
+
+vec_pid* bg_pids = NULL;
 
 // some debugging stuff
 void print_cmd(const cmd_t * command){
@@ -405,7 +483,7 @@ void exec_command(cmd_t* command){
     }
     // output redirection:
     if(command->filev[1][0] != '\0'){
-      int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_APPEND, 0644);
+      int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
         perror("Command output file not found!");
         //TODO: preguntar al profe que hacer aqui
@@ -416,8 +494,7 @@ void exec_command(cmd_t* command){
 
     // error redirection:
     if(command->filev[2][0] != '\0'){
-      // TODO: pregunar al profe sobre O_APPEND
-      int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_APPEND, 0644);
+      int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
         perror("Command error output file not found!");
         //TODO: preguntar al profe que hacer aqui
@@ -449,17 +526,24 @@ void exec_command(cmd_t* command){
   }
   // case parent
   else{
-
     // update the command's pid
     command->pid = pid;
     if (command->in_fd != -1) {
-      close(command->in_fd);
+      close_print_error(command->in_fd);
+      command->in_fd = -1;
     }
     if (command->out_fd != -1) {
-      close(command->out_fd);
+      close_print_error(command->out_fd);
+      command->out_fd = -1;
     }
     if (command->outerr_fd != -1) {
-      close(command->outerr_fd);
+      close_print_error(command->outerr_fd);
+      command->outerr_fd = -1;
+    }
+
+
+    if(command->bg == true){
+      append_vec_pid(bg_pids, pid);
     }
   }
 
@@ -479,11 +563,12 @@ void exec_line(vec_cmd* parsed_line){
   for (size_t i = 0; i < parsed_line->size; i++){
     // TODO: change this to use the wait systemcall
     // wait for only non-backgrounded processes
-    if(parsed_line->values[i].bg == 0){
+    if(parsed_line->values[i].bg == false){
       // TODO: preguntar al profe si esta bien usar el waitpid
       int wstatus;
       waitpid(parsed_line->values[i].pid, &wstatus, 0);
       // this fails sometimes idk why
+      // TODO: fix this
       if (WEXITSTATUS(wstatus) != 0){
         // TODO: preguntar al profe si aqui poner perror o fprintf(stderr, "...")
         // porque el errno es de success
@@ -581,7 +666,7 @@ vec_cmd* parse_line(char* line, int line_number){
         if (parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
         }
-        current_command.bg = 1;
+        current_command.bg = true;
         break;
       case TOKEN_REDIR_OUT:
         // make sure we are in the right state
@@ -692,10 +777,7 @@ void process_file(char* filename){
     }
   }
   // close file
-  int err = close(fd);
-  if (err < 0){
-    perror("Failed to close file!");
-  }
+  close_print_error(fd);
 }
 
 void print_usage(char* bin_name){
@@ -709,5 +791,15 @@ int main(int argc, char *argv[]) {
     print_usage(argv[0]);
     return -1;
   }
+  bg_pids = create_vec_pid();
   process_file(argv[1]);
+
+  for (int i = 0; i < bg_pids->size; i ++){
+    int wstatus;
+    waitpid(bg_pids->values[i], &wstatus, 0);
+    if (WEXITSTATUS(wstatus) != 0){
+      // TODO: print error but idk
+    }
+  }
+  destroy_vec_pid(bg_pids);
 }
