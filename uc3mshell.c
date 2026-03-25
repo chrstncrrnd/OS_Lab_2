@@ -25,11 +25,26 @@
 // Really doesn't need to be a macro but i wanted to mess around
 // with macros
 #define ParserSyntaxError(line_number, out) { \
-  fprintf(stderr, "Syntax error on line %d!\n", line_number);\
-  destroy_vec_cmd(out);\
+  fprintf(stderr, "Syntax error on line %d!\n", (line_number));\
+  destroy_vec_cmd((out));\
   out = NULL;\
   return NULL;\
 }
+
+// Once again, does not need to be a macro but is cleaner i think
+#define ReplaceFD(fd1, fd2) { \
+  int errclose = close((fd1)); \
+  if(errclose < 0){ \
+    perror("Error closing old file while replacing file descriptor!"); \
+    _exit(-1); \
+  }\
+  int errdup = dup((fd2)); \
+  if(errdup < 0){ \
+    fprintf(stderr, "For file descriptor %d", (fd2)); \
+    perror("error duping file descriptor!"); \
+    _exit(-1); \
+  } \
+} \
 
 // command struct (used for managing processes)
 typedef struct {
@@ -366,52 +381,60 @@ void exec_command(cmd_t* command){
       exec_args[i] = command->argv[i];
     }
     exec_args[command->argc] = NULL;
+
+
+
+    // handle the file redirections
+    // input redirection:
+    if(command->filev[0][0] != '\0'){
+      // if filev[0] is not an empty string, then we try to open the file...
+      int fd = open(command->filev[0], O_RDONLY);
+      if (fd < 0){
+        perror("Command input file not found!");
+        //TODO: preguntar al profe que hacer aqui
+        return;
+      }
+      command->in_fd = fd;
+    }
+    // output redirection:
+    if(command->filev[1][0] != '\0'){
+      int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_APPEND, 0644);
+      if (fd < 0){
+        perror("Command output file not found!");
+        //TODO: preguntar al profe que hacer aqui
+        return;
+      }
+      command->out_fd = fd;
+    }
+
+    // error redirection:
+    if(command->filev[2][0] != '\0'){
+      // TODO: pregunar al profe sobre O_APPEND
+      int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_APPEND, 0644);
+      if (fd < 0){
+        perror("Command error output file not found!");
+        //TODO: preguntar al profe que hacer aqui
+        return;
+      }
+      command->outerr_fd = fd;
+    }
+
+
+
     // Replace STDIN
     if(command->in_fd != -1){
-      int errstdin = close(STDIN_FILENO);
-      if(errstdin < 0){
-        perror("Error closing stdin!");
-        _exit(-1);
-      }
-
-      int errdup = dup(command->in_fd);
-      if(errdup < 0){
-        perror("Error duping file descriptor!");
-        _exit(-1);
-      }
-
+      // using a macro here makes it much cleaner!
+      ReplaceFD(STDIN_FILENO, command->in_fd);
     }
-
     // Replace STDOUT
     if(command->out_fd != -1){
-      int errstdin = close(STDOUT_FILENO);
-      if(errstdin < 0){
-        perror("Error closing stdout!");
-        _exit(-1);
-      }
-
-      int errdup = dup(command->out_fd);
-      if(errdup < 0){
-        perror("Error duping file descriptor!");
-        _exit(-1);
-      }
-
+      ReplaceFD(STDOUT_FILENO, command->out_fd);
     }
-
     // Replace STDERR
     if(command->outerr_fd != -1){
-      int errstdin = close(STDERR_FILENO);
-      if(errstdin < 0){
-        perror("Error closing stderr!");
-        _exit(-1);
-      }
-
-      int errdup = dup(command->outerr_fd);
-      if(errdup < 0){
-        perror("Error duping file descriptor!");
-        _exit(-1);
-      }
+      ReplaceFD(STDERR_FILENO, command->outerr_fd);
     }
+
 
     // execute the actual program
     execvp(exec_args[0], exec_args);
@@ -439,7 +462,8 @@ void exec_command(cmd_t* command){
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
-  // print_vec_cmd(parsed_line);
+  print_vec_cmd(parsed_line);
+  printf("===================================\n");
   // return;
   for (size_t i = 0; i < parsed_line->size; i ++){
     exec_command(&(parsed_line->values[i]));
@@ -450,7 +474,15 @@ void exec_line(vec_cmd* parsed_line){
     // TODO: change this to use the wait systemcall
     // wait for only non-backgrounded processes
     if(parsed_line->values[i].bg == 0){
-      waitpid(parsed_line->values[i].pid, NULL, 0);
+      // TODO: preguntar al profe si esta bien usar el waitpid
+      int wstatus;
+      waitpid(parsed_line->values[i].pid, &wstatus, 0);
+      // this fails sometimes idk why
+      if (WEXITSTATUS(wstatus) != 0){
+        // TODO: preguntar al profe si aqui poner perror o fprintf(stderr, "...")
+        // porque el errno es de success
+        //perror("One of the commands supplied exited with an error!");
+      }
     }
   }
 }
@@ -513,11 +545,11 @@ vec_cmd* parse_line(char* line, int line_number){
     switch(latest_token.token){
       case TOKEN_ERROR:
         // ParserSyntaxError macro returns automatically
-        ParserSyntaxError(line_number, out)
+        ParserSyntaxError(line_number, out);
         break;
       case TOKEN_PIPE:
         if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         int err = pipe(pipe_fd);
         // error occured with pipe!
@@ -533,25 +565,25 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
       case TOKEN_BACKGROUND:
         if (parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         current_command.bg = 1;
         break;
       case TOKEN_REDIR_OUT:
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         parser_state = PS_EXPECT_FILENAME_OUT;
         break;
       case TOKEN_REDIR_IN:
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         parser_state = PS_EXPECT_FILENAME_INP;
         break;
       case TOKEN_REDIR_ERR:
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         parser_state = PS_EXPECT_FILENAME_ERR;
         break;
@@ -577,7 +609,7 @@ vec_cmd* parse_line(char* line, int line_number){
           parser_state = PS_EXPECT_ARGS;
         }else{
           fprintf(stderr, "Okay this shouldn't be happening!");
-          ParserSyntaxError(line_number, out)
+          ParserSyntaxError(line_number, out);
         }
         break;
       case TOKEN_NULL:
@@ -587,7 +619,7 @@ vec_cmd* parse_line(char* line, int line_number){
     }
   }
   if(parser_state != PS_EXPECT_ARGS){
-    ParserSyntaxError(line_number, out)
+    ParserSyntaxError(line_number, out);
   }
   if (current_command.argc != 0){
     append_vec_cmd(out, current_command);
