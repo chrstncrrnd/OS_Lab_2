@@ -141,6 +141,8 @@ void print_vec_cmd(const vec_cmd* vector){
   }
 }
 
+
+
 // Lexer states
 typedef enum{
   LS_INITIAL,
@@ -517,7 +519,12 @@ vec_cmd* parse_line(char* line, int line_number){
         if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
           ParserSyntaxError(line_number, out)
         }
-        pipe(pipe_fd);
+        int err = pipe(pipe_fd);
+        // error occured with pipe!
+        if(err < 0){
+          perror("Error opening pipe!");
+          _exit(-1);
+        }
         current_command.out_fd = pipe_fd[1];
         append_vec_cmd(out, current_command);
         init_cmd_t(&current_command);
