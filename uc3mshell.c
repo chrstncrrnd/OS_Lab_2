@@ -31,6 +31,13 @@
   return NULL;\
 }
 
+// parser syntax error with message
+#define ParserSyntaxErrorMsg(line_number, message, out) { \
+  fprintf(stderr, "Syntax error on line %d: "message"!\n", (line_number));\
+  destroy_vec_cmd((out));\
+  out = NULL;\
+  return NULL;\
+}
 // Once again, does not need to be a macro but is cleaner i think
 #define ReplaceFD(fd1, fd2) { \
   int errclose = close((fd1)); \
@@ -463,8 +470,7 @@ void exec_command(cmd_t* command){
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
   print_vec_cmd(parsed_line);
-  printf("===================================\n");
-  // return;
+ //return;
   for (size_t i = 0; i < parsed_line->size; i ++){
     exec_command(&(parsed_line->values[i]));
   }
@@ -548,8 +554,15 @@ vec_cmd* parse_line(char* line, int line_number){
         ParserSyntaxError(line_number, out);
         break;
       case TOKEN_PIPE:
+        // check we are not in an invalid state firstly
         if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
           ParserSyntaxError(line_number, out);
+        }
+
+        // then check that we haven't already specified an output file for our command
+        if(current_command.filev[1][0] != '\0' /*for stdout*/ || current_command.filev[2][0] != '\0' /*for stderr*/){
+          // returns automatically and includes the specified message in debug
+          ParserSyntaxErrorMsg(line_number, "output redirection is already specified, cannot pipe output", out);
         }
         int err = pipe(pipe_fd);
         // error occured with pipe!
@@ -559,6 +572,7 @@ vec_cmd* parse_line(char* line, int line_number){
         }
         current_command.out_fd = pipe_fd[1];
         append_vec_cmd(out, current_command);
+        // reset current command
         init_cmd_t(&current_command);
         current_command.in_fd = pipe_fd[0];
         parser_state = PS_EXPECT_CMD_PIPED;
@@ -570,14 +584,24 @@ vec_cmd* parse_line(char* line, int line_number){
         current_command.bg = 1;
         break;
       case TOKEN_REDIR_OUT:
+        // make sure we are in the right state
         if(parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
+        }
+        // make sure we haven't already supplied an output redirection
+        if (current_command.filev[1][0] != '\0'){
+          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out);
         }
         parser_state = PS_EXPECT_FILENAME_OUT;
         break;
       case TOKEN_REDIR_IN:
+        // check state
         if(parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
+        }
+        // make sure that we haven't already specified an input
+        if(current_command.in_fd != -1 || current_command.filev[0][0] != '\0'){
+          ParserSyntaxErrorMsg(line_number, "cannot have input redirection, input already comes from pipe", out);
         }
         parser_state = PS_EXPECT_FILENAME_INP;
         break;
@@ -585,10 +609,15 @@ vec_cmd* parse_line(char* line, int line_number){
         if(parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
         }
+        // make sure we haven't already supplied an error redirection
+        if (current_command.filev[2][0] != '\0'){
+          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out);
+        }
         parser_state = PS_EXPECT_FILENAME_ERR;
         break;
       case TOKEN_WORD:
         if(parser_state == PS_EXPECT_CMD){
+          // copy command
           strcpy(current_command.argv[0], latest_token.lexeme);
           current_command.argc = 1;
           parser_state = PS_EXPECT_ARGS;
@@ -614,7 +643,7 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
       case TOKEN_NULL:
         // We can't get this token but for completion of cases its included as a syntax error
-        ParserSyntaxError(line_number, out);
+        ParserSyntaxErrorMsg(line_number, "fatal error", out);
         break;
     }
   }
