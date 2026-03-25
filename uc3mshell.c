@@ -143,7 +143,7 @@ void destroy_vec_cmd(vec_cmd* to_destroy){
   if (to_destroy == NULL){
     return;
   }
-  for (int i = 0; i < to_destroy->size; i++){
+  for (size_t i = 0; i < to_destroy->size; i++){
     // we need to make sure that we close all the file descriptors when we destroy this array
     if(to_destroy->values[i].in_fd != -1){
       close_print_error(to_destroy->values[i].in_fd);
@@ -543,6 +543,7 @@ void exec_command(cmd_t* command){
 
 
     if(command->bg == true){
+      printf("%d\n", pid);
       append_vec_pid(bg_pids, pid);
     }
   }
@@ -553,8 +554,8 @@ void exec_command(cmd_t* command){
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
-  print_vec_cmd(parsed_line);
- //return;
+  //print_vec_cmd(parsed_line);
+  //return;
   for (size_t i = 0; i < parsed_line->size; i ++){
     exec_command(&(parsed_line->values[i]));
   }
@@ -794,7 +795,7 @@ int main(int argc, char *argv[]) {
   bg_pids = create_vec_pid();
   process_file(argv[1]);
 
-  for (int i = 0; i < bg_pids->size; i ++){
+  for (size_t i = 0; i < bg_pids->size; i ++){
     int wstatus;
     waitpid(bg_pids->values[i], &wstatus, 0);
     if (WEXITSTATUS(wstatus) != 0){
