@@ -39,10 +39,11 @@
   return NULL;\
 }
 // Once again, does not need to be a macro but is cleaner i think
+// TODO: use dup2
 #define ReplaceFD(fd1, fd2) { \
   int errclose = close((fd1)); \
   if(errclose < 0){ \
-    perror("Error closing old file while rep// string strip functionalitylacing file descriptor!"); \
+    perror("Error closing old file while replacing file descriptor!"); \
     _exit(-1); \
   }\
   int errdup = dup((fd2)); \
@@ -93,10 +94,12 @@ void strip(char* str){
 
 
 // utility function to close a file descriptor and print an error if it fails (does not exit)
+// TODO: other calls to close should use this wrapper
 void close_print_error(int fd){
   int err = close(fd);
   if(err < 0){
     perror("Error closing a file!");
+    _exit(-1);
   }
 }
 // command struct (used for managing processes)
@@ -514,7 +517,8 @@ void exec_command(cmd_t* command){
       int fd = open(command->filev[0], O_RDONLY);
       if (fd < 0){
         perror("Command input file not found!");
-        //TODO: preguntar al profe que hacer aqui
+        // TODO: preguntar al profe que hacer aqui
+        // TODO: This should exit (OR NOT)
         return;
       }
       command->in_fd = fd;
@@ -523,8 +527,9 @@ void exec_command(cmd_t* command){
     if(command->filev[1][0] != '\0'){
       int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Command output file not found!");
+        perror("Error opening command output redirection!");
         //TODO: preguntar al profe que hacer aqui
+        // TODO: this should exit
         return;
       }
       command->out_fd = fd;
@@ -534,8 +539,9 @@ void exec_command(cmd_t* command){
     if(command->filev[2][0] != '\0'){
       int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Command error output file not found!");
-        //TODO: preguntar al profe que hacer aqui
+        perror("Error opening command output error redirection!");
+        // TODO: preguntar al profe que hacer aqui
+        // TODO: this should exit
         return;
       }
       command->outerr_fd = fd;
@@ -601,14 +607,12 @@ void exec_line(vec_cmd* parsed_line){
 
   // wait for children
   for (size_t i = 0; i < parsed_line->size; i++){
-    // TODO: change this to use the wait systemcall
     // wait for only non-backgrounded processes
     if(parsed_line->values[i].bg == false){
-      // TODO: preguntar al profe si esta bien usar el waitpid
       int wstatus;
       waitpid(parsed_line->values[i].pid, &wstatus, 0);
       // this fails sometimes idk why
-      // TODO: fix this
+      // TODO: remove this
       if (WEXITSTATUS(wstatus) != 0){
         // TODO: preguntar al profe si aqui poner perror o fprintf(stderr, "...")
         // porque el errno es de success
@@ -821,7 +825,7 @@ void process_file(char* filename){
 }
 
 void print_usage(char* bin_name){
-  printf("Usage: %s <input_file>\n", bin_name);
+  fprintf(stderr, "Usage: %s <input_file>\n", bin_name);
 }
 
 
@@ -837,6 +841,8 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < bg_pids->size; i ++){
     int wstatus;
     waitpid(bg_pids->values[i], &wstatus, 0);
+
+    // TODO: remove this
     if (WEXITSTATUS(wstatus) != 0){
       // TODO: print error but idk
     }
