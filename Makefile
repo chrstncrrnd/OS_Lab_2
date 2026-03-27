@@ -12,13 +12,13 @@ CFLAGS = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -O2
 CFLAGS_DBG = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -g
 
 # Header files
-DEPS = mycalc.h str_strip.h
+DEPS = mycalc.h
 
 # Objects
-OBJ_SHELL = uc3mshell.o mycalc.o str_strip.o
+OBJ_SHELL = uc3mshell.o mycalc.o
 OBJ_MYCP = mycp.o
 
-OBJ_SHELL_DBG = uc3mshell_debug.o mycalc_debug.o str_strip_debug.o
+OBJ_SHELL_DBG = uc3mshell_debug.o mycalc_debug.o
 OBJ_MYCP_DBG = mycp_debug.o
 
 # Defined targets

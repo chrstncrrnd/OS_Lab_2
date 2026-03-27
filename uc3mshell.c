@@ -5,8 +5,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <string.h>
 #include <unistd.h>
-#include "str_strip.h"
 
 // TODO: eliminar todo de abajo y este
 // TODO: eliminar TODOs
@@ -42,7 +42,7 @@
 #define ReplaceFD(fd1, fd2) { \
   int errclose = close((fd1)); \
   if(errclose < 0){ \
-    perror("Error closing old file while replacing file descriptor!"); \
+    perror("Error closing old file while rep// string strip functionalitylacing file descriptor!"); \
     _exit(-1); \
   }\
   int errdup = dup((fd2)); \
@@ -52,6 +52,44 @@
     _exit(-1); \
   } \
 } \
+
+
+// string strip functionality
+int is_whitespace(char c){
+  return c == ' ' || c == '\t' || c == '\n';
+}
+
+
+void strip_left(char* str){
+  size_t i, j;
+  size_t len = strlen(str);
+  for (i = 0; i <= len; i ++){
+    if(!(is_whitespace(str[i]))){
+      break;
+    }
+  }
+  for (j = 0; j < len - i; j++){
+    str[j] = str[j + i];
+  }
+  str[j] = 0;
+}
+
+void strip_right(char* str){
+  size_t i;
+  for (i = strlen(str) - 1; ; i --){
+    if (!is_whitespace(str[i])){
+      break;
+    }
+  }
+  str[++i] = 0;
+}
+
+
+void strip(char* str){
+  strip_left(str);
+  strip_right(str);
+}
+
 
 
 // utility function to close a file descriptor and print an error if it fails (does not exit)
@@ -523,6 +561,7 @@ void exec_command(cmd_t* command){
     // execute the actual program
     execvp(exec_args[0], exec_args);
     perror("Couldn't execute command correctly!");
+    _exit(-1);
   }
   // case parent
   else{

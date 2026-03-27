@@ -1,4 +1,3 @@
-uc3mshellold.c
 autores.txt
 *.o
 mycp
@@ -7,3 +6,4 @@ test
 uc3mshell_debug
 mycp_debug
 issue*
+dudas.md
