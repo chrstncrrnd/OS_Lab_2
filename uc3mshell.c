@@ -10,6 +10,7 @@
 
 // TODO: eliminar todo de abajo y este
 // TODO: eliminar TODOs
+// TODO: use perror where specified
 #define max_commands 10
 #define max_redirections 3 // stdin, stdout, stderr
 #define max_args 15
@@ -88,7 +89,6 @@ void strip(char* str){
 
 
 // utility function to close a file descriptor and print an error if it fails (does not exit)
-// TODO: other calls to close should use this wrapper
 void close_print_error(int fd){
   int err = close(fd);
   if(err < 0){
@@ -96,6 +96,8 @@ void close_print_error(int fd){
     _exit(-1);
   }
 }
+
+
 // command struct (used for managing processes)
 typedef struct {
   pid_t pid;
@@ -337,28 +339,23 @@ Token get_next_token(char** input){
           (*input) ++;
           return (Token){
             .token = TOKEN_PIPE,
-            // TODO: check if it is neccessary here to set value for lexeme
-            .lexeme = ""
           };
         }
         else if(c == '>'){
           (*input) ++;
           return (Token){
             .token = TOKEN_REDIR_OUT,
-            .lexeme = ""
           };
         }
         else if(c == '<'){
           (*input) ++;
           return (Token){
             .token = TOKEN_REDIR_IN,
-            .lexeme = ""
           };
         }else if(c == '&'){
           (*input) ++;
           return (Token){
             .token = TOKEN_BACKGROUND,
-            .lexeme = ""
           };
         }
         else if(c == '!'){
@@ -368,7 +365,6 @@ Token get_next_token(char** input){
         }else if (c == '\0'){
           return (Token){
             .token = TOKEN_NULL,
-            .lexeme = "\0",
           };
         }
         else if(is_nonspace(c) && is_nonreserved(c)){
@@ -377,7 +373,6 @@ Token get_next_token(char** input){
             fprintf(stderr, "Error processing line: token too long!");
             return (Token){
               .token = TOKEN_ERROR,
-              .lexeme = ""
             };
           }
           buffer[current_token_len++] = c;
@@ -392,7 +387,6 @@ Token get_next_token(char** input){
         // let caller handle syntax error!
         return (Token){
           .token = TOKEN_ERROR,
-          .lexeme = ""
         };
         break;
       case LS_BUILDING_ERR_REDIR:
@@ -400,12 +394,10 @@ Token get_next_token(char** input){
           (*input)++;
           return (Token){
             .token = TOKEN_REDIR_ERR,
-            .lexeme = ""
           };
         }
         return (Token){
           .token = TOKEN_ERROR,
-          .lexeme = ""
         };
         break;
       case LS_BUILDING_WORD:
@@ -413,14 +405,12 @@ Token get_next_token(char** input){
         if(c == ' ' || c == '\0' || (is_nonreserved(c) == 0)){
           Token out = {
             .token = TOKEN_WORD,
-            .lexeme = ""
           };
           // make sure that we don't overflow buffer to append null terminator
           if(current_token_len >= token_max_len){
             fprintf(stderr, "Error processing line: token too long!");
             return (Token){
               .token = TOKEN_ERROR,
-              .lexeme = ""
             };
           }
           // put our buffer into the token struct
@@ -433,7 +423,6 @@ Token get_next_token(char** input){
             fprintf(stderr, "Error processing line: token too long!");
             return (Token){
               .token = TOKEN_ERROR,
-              .lexeme = ""
             };
           }
           buffer[current_token_len++] = c;
@@ -442,7 +431,6 @@ Token get_next_token(char** input){
         }
         return (Token){
           .token = TOKEN_ERROR,
-          .lexeme = "",
         };
         // break is redundant since we have already returned above but best practice
         break;
@@ -450,14 +438,12 @@ Token get_next_token(char** input){
         if(c == '"'){
           Token out = {
             .token = TOKEN_WORD,
-            .lexeme = ""
           };
           // make sure that we don't overflow buffer to append null terminator
           if(current_token_len >= token_max_len){
             fprintf(stderr, "Error processing line: token too long!");
             return (Token){
               .token = TOKEN_ERROR,
-              .lexeme = ""
             };
           }
           // put our buffer into the token struct
@@ -469,7 +455,6 @@ Token get_next_token(char** input){
           // we opened some quotes but never closed them!
           return (Token){
             .token = TOKEN_ERROR,
-            .lexeme = ""
           };
         }else {
           // make sure that we don't overflow buffer to append new character
@@ -477,7 +462,6 @@ Token get_next_token(char** input){
             fprintf(stderr, "Error processing line: token too long!");
             return (Token){
               .token = TOKEN_ERROR,
-              .lexeme = ""
             };
           }
           // put our buffer into the token struct
@@ -510,10 +494,8 @@ void exec_command(cmd_t* command){
       // if filev[0] is not an empty string, then we try to open the file...
       int fd = open(command->filev[0], O_RDONLY);
       if (fd < 0){
-        perror("Command input file not found!");
-        // TODO: preguntar al profe que hacer aqui
-        // TODO: This should exit (OR NOT)
-        return;
+        perror("Error opening input redirection file!");
+        _exit(-1);
       }
       command->in_fd = fd;
     }
@@ -521,10 +503,8 @@ void exec_command(cmd_t* command){
     if(command->filev[1][0] != '\0'){
       int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Error opening command output redirection!");
-        //TODO: preguntar al profe que hacer aqui
-        // TODO: this should exit
-        return;
+        perror("Error opening output redirection file!");
+        _exit(-1);
       }
       command->out_fd = fd;
     }
@@ -533,10 +513,8 @@ void exec_command(cmd_t* command){
     if(command->filev[2][0] != '\0'){
       int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Error opening command output error redirection!");
-        // TODO: preguntar al profe que hacer aqui
-        // TODO: this should exit
-        return;
+        perror("Error opening error output redirection file!");
+        _exit(-1);
       }
       command->outerr_fd = fd;
     }
@@ -605,13 +583,6 @@ void exec_line(vec_cmd* parsed_line){
     if(parsed_line->values[i].bg == false){
       int wstatus;
       waitpid(parsed_line->values[i].pid, &wstatus, 0);
-      // this fails sometimes idk why
-      // TODO: remove this
-      if (WEXITSTATUS(wstatus) != 0){
-        // TODO: preguntar al profe si aqui poner perror o fprintf(stderr, "...")
-        // porque el errno es de success
-        //perror("One of the commands supplied exited with an error!");
-      }
     }
   }
 }
@@ -643,7 +614,6 @@ vec_cmd* parse_line(char* line, int line_number){
   // check that the first line is as specified
   if (line_number == 1){
     if (strcmp(line, "## Uc3mshell P2") != 0){
-      // TODO: preguntar profe si esto deberia ser perror como en el enunciado
       fprintf(stderr,"ERROR: Unexpected first line!\n");
       _exit(-1);
     }else{
@@ -835,11 +805,6 @@ int main(int argc, char *argv[]) {
   for (size_t i = 0; i < bg_pids->size; i ++){
     int wstatus;
     waitpid(bg_pids->values[i], &wstatus, 0);
-
-    // TODO: remove this
-    if (WEXITSTATUS(wstatus) != 0){
-      // TODO: print error but idk
-    }
   }
   destroy_vec_pid(bg_pids);
 }
