@@ -107,7 +107,6 @@ typedef struct {
   int in_fd;
   int out_fd;
   int outerr_fd;
-  bool bg;
   char filev[3][token_max_len];
 } cmd_t;
 
@@ -119,7 +118,6 @@ void init_cmd_t(cmd_t* val){
   val->in_fd = -1;
   val->out_fd = -1;
   val->outerr_fd = -1;
-  val->bg = false;
   val->filev[0][0] = '\0';
   val->filev[1][0] = '\0';
   val->filev[2][0] = '\0';
@@ -132,6 +130,8 @@ typedef struct {
   size_t size;
   // capacity of array
   size_t capacity;
+  // should we run this chain of commands in the background?
+  bool bg;
 } vec_cmd;
 
 
@@ -147,6 +147,7 @@ vec_cmd* create_vec_cmd(){
   out->capacity = 4;
   out->size = 0;
   out->values = (cmd_t*)malloc(sizeof(cmd_t) * out->capacity);
+  out->bg = false;
 
   // check that the memory was correctly allocated
   if (out->values == NULL){
@@ -557,14 +558,7 @@ void exec_command(cmd_t* command){
       close_print_error(command->outerr_fd);
       command->outerr_fd = -1;
     }
-
-
-    if(command->bg == true){
-      printf("%d\n", pid);
-      append_vec_pid(bg_pids, pid);
-    }
   }
-
 }
 
 
@@ -576,15 +570,21 @@ void exec_line(vec_cmd* parsed_line){
   for (size_t i = 0; i < parsed_line->size; i ++){
     exec_command(&(parsed_line->values[i]));
   }
-
-  // wait for children
-  for (size_t i = 0; i < parsed_line->size; i++){
-    // wait for only non-backgrounded processes
-    if(parsed_line->values[i].bg == false){
-      int wstatus;
-      waitpid(parsed_line->values[i].pid, &wstatus, 0);
+  if(parsed_line->bg == false){
+    // wait for children
+    for (size_t i = 0; i < parsed_line->size; i++){
+      // wait for only non-backgrounded processes
+      waitpid(parsed_line->values[i].pid, NULL, 0);
     }
   }
+  else{
+    for (size_t i = 0; i < parsed_line->size; i++){
+      append_vec_pid(bg_pids, parsed_line->values[i].pid);
+    }
+    // print the last element's pid
+    printf("%d\n", parsed_line->values[parsed_line->size - 1].pid);
+  }
+
 }
 
 
@@ -596,7 +596,9 @@ typedef enum{
   PS_EXPECT_FILENAME_INP,
   PS_EXPECT_ARGS,
   PS_EXPECT_CMD,
-  PS_EXPECT_CMD_PIPED
+  PS_EXPECT_CMD_PIPED,
+  // Expect end of line
+  PS_EXPECT_EOL
 } ParserState;
 
 
@@ -641,6 +643,9 @@ vec_cmd* parse_line(char* line, int line_number){
 
   // we get a TOKEN_NULL once we have reached the end of the input
   while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
+    if (parser_state == PS_EXPECT_EOL){
+      ParserSyntaxErrorMsg(line_number, "expected end of line", out)
+    }
     switch(latest_token.token){
       case TOKEN_ERROR:
         // ParserSyntaxError macro returns automatically
@@ -674,7 +679,8 @@ vec_cmd* parse_line(char* line, int line_number){
         if (parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
         }
-        current_command.bg = true;
+        out->bg = true;
+        parser_state = PS_EXPECT_EOL;
         break;
       case TOKEN_REDIR_OUT:
         // make sure we are in the right state
@@ -740,7 +746,7 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
     }
   }
-  if(parser_state != PS_EXPECT_ARGS){
+  if(parser_state != PS_EXPECT_ARGS && parser_state != PS_EXPECT_EOL){
     ParserSyntaxError(line_number, out);
   }
   if (current_command.argc != 0){
@@ -803,8 +809,7 @@ int main(int argc, char *argv[]) {
   process_file(argv[1]);
 
   for (size_t i = 0; i < bg_pids->size; i ++){
-    int wstatus;
-    waitpid(bg_pids->values[i], &wstatus, 0);
+    waitpid(bg_pids->values[i], NULL, 0);
   }
   destroy_vec_pid(bg_pids);
 }
