@@ -39,14 +39,8 @@
   return NULL;\
 }
 // Once again, does not need to be a macro but is cleaner i think
-// TODO: use dup2
 #define ReplaceFD(fd1, fd2) { \
-  int errclose = close((fd1)); \
-  if(errclose < 0){ \
-    perror("Error closing old file while replacing file descriptor!"); \
-    _exit(-1); \
-  }\
-  int errdup = dup((fd2)); \
+  int errdup = dup2((fd2), (fd1)); \
   if(errdup < 0){ \
     fprintf(stderr, "For file descriptor %d", (fd2)); \
     perror("error duping file descriptor!"); \
