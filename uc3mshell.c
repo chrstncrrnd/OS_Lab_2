@@ -327,6 +327,11 @@ void exit_builtin(cmd_t command, vec_cmd* current_line){
   _exit(0);
 }
 
+void mycalc_builtin(int argc, char* argv[max_args]){
+  mycalc(argc, argv);
+}
+
+
 // Lexer states
 typedef enum{
   LS_INITIAL,
@@ -547,6 +552,11 @@ void exec_command(cmd_t* command){
     // Replace STDERR
     if(command->outerr_fd != -1){
       ReplaceFD(STDERR_FILENO, command->outerr_fd);
+    }
+
+    if(strcmp(exec_args[0], "mycalc") == 0){
+      mycalc_builtin(command->argc, exec_args);
+      _exit(0);
     }
 
 
