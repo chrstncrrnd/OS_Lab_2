@@ -489,39 +489,6 @@ void exec_command(cmd_t* command){
 
 
 
-    // handle the file redirections
-    // input redirection:
-    if(command->filev[0][0] != '\0'){
-      // if filev[0] is not an empty string, then we try to open the file...
-      int fd = open(command->filev[0], O_RDONLY);
-      if (fd < 0){
-        perror("Error opening input redirection file!");
-        _exit(-1);
-      }
-      command->in_fd = fd;
-    }
-    // output redirection:
-    if(command->filev[1][0] != '\0'){
-      int fd = open(command->filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-      if (fd < 0){
-        perror("Error opening output redirection file!");
-        _exit(-1);
-      }
-      command->out_fd = fd;
-    }
-
-    // error redirection:
-    if(command->filev[2][0] != '\0'){
-      int fd = open(command->filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
-      if (fd < 0){
-        perror("Error opening error output redirection file!");
-        _exit(-1);
-      }
-      command->outerr_fd = fd;
-    }
-
-
-
     // Replace STDIN
     if(command->in_fd != -1){
       // using a macro here makes it much cleaner!
@@ -616,7 +583,7 @@ vec_cmd* parse_line(char* line, int line_number){
   // check that the first line is as specified
   if (line_number == 1){
     if (strcmp(line, "## Uc3mshell P2") != 0){
-      fprintf(stderr,"ERROR: Unexpected first line!\n");
+      perror("ERROR: Unexpected first line!\n");
       _exit(-1);
     }else{
       return NULL;
@@ -755,6 +722,44 @@ vec_cmd* parse_line(char* line, int line_number){
   return out;
 }
 
+
+
+bool resolve_file_redirections(vec_cmd* line){
+  for (size_t i = 0; i < line->size; i ++){
+    // handle the file redirections
+    // input redirection:
+    if(line->values[i].filev[0][0] != '\0'){
+      // if filev[0] is not an empty string, then we try to open the file...
+      int fd = open(line->values[i].filev[0], O_RDONLY);
+      if (fd < 0){
+        perror("Error opening input redirection file!");
+        return false;
+      }
+      line->values[i].in_fd = fd;
+    }
+    // output redirection:
+    if(line->values[i].filev[1][0] != '\0'){
+      int fd = open(line->values[i].filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd < 0){
+        perror("Error opening output redirection file!");
+        return false;
+      }
+      line->values[i].out_fd = fd;
+    }
+
+    // error redirection:
+    if(line->values[i].filev[2][0] != '\0'){
+      int fd = open(line->values[i].filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd < 0){
+        perror("Error opening error output redirection file!");
+        return false;
+      }
+      line->values[i].outerr_fd = fd;
+    }
+  }
+  return true;
+}
+
 // open and process the file
 void process_file(char* filename){
   int fd = open(filename, O_RDONLY);
@@ -779,7 +784,10 @@ void process_file(char* filename){
         // vector is freed once executed
         vec_cmd* parsed_line = parse_line(line, line_number++);
         if (parsed_line != NULL){
-          exec_line(parsed_line);
+          // if we have successfully resolved the file redirections (opened the input/output redirections)
+          if(resolve_file_redirections(parsed_line)){
+            exec_line(parsed_line);
+          }
           destroy_vec_cmd(parsed_line);
           parsed_line = NULL;
         }
