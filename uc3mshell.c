@@ -92,7 +92,7 @@ void strip(char* str){
 void close_print_error(int fd){
   int err = close(fd);
   if(err < 0){
-    perror("Error closing a file!");
+    perror("[ERROR] Encountered an error while closing file!");
     _exit(-1);
   }
 }
@@ -139,7 +139,7 @@ typedef struct {
 vec_cmd* create_vec_cmd(){
   vec_cmd* out = (vec_cmd*)malloc(sizeof(vec_cmd));
   if (out == NULL){
-    perror("ERROR: allocating memory for process vector struct!");
+    perror("[ERROR] Couldn't allocate memory for process vector struct!");
     // we really can't continue running if we cannot allocate memory
     _exit(-1);
   }
@@ -151,7 +151,7 @@ vec_cmd* create_vec_cmd(){
 
   // check that the memory was correctly allocated
   if (out->values == NULL){
-    perror("ERROR: allocating memory for process vector elements!");
+    perror("[ERROR] Allocating memory for process vector elements!");
     // we don't need a free here because memory will be cleaned up on exit
     _exit(-1);
   }
@@ -167,7 +167,7 @@ void append_vec_cmd(vec_cmd* vector, cmd_t value){
     vector->capacity = vector->capacity * 2;
     vector->values = (cmd_t*)realloc(vector->values, vector->capacity * sizeof(cmd_t));
     if(vector->values == NULL){
-      perror("ERROR: reallocating memory for process vectors!");
+      perror("[ERROR] Couldn't reallocate memory for process vectors!");
       _exit(-1);
     }
   }
@@ -213,7 +213,7 @@ vec_pid* create_vec_pid(){
   vec_pid* out = (vec_pid*) malloc(sizeof(vec_pid));
 
   if (out == NULL){
-    perror("Error allocating memory for PID vector structure!");
+    perror("[ERROR] Couldn't allocate memory for PID vector structure!");
     _exit(-1);
   }
   // we can have an initial capacity of 2 since this array is likey going to be small
@@ -222,7 +222,7 @@ vec_pid* create_vec_pid(){
   out->values = (pid_t*) malloc(sizeof(pid_t) * out->capacity);
 
   if(out->values == NULL){
-    perror("Error allocating memory for PID vector values!");
+    perror("[ERROR] Couldn't allocate memory for PID vector values!");
     _exit(-1);
   }
 
@@ -236,7 +236,7 @@ void append_vec_pid(vec_pid* vector, pid_t value){
     vector->capacity = vector->capacity * 2;
     vector->values = (pid_t*) realloc(vector->values, sizeof(pid_t) * vector->capacity);
     if(vector->values == NULL){
-      perror("Error reallocating memory for vector of PIDs");
+      perror("[ERROR] Couldn't reallocate memory for vector of PIDs!");
       _exit(-1);
     }
   }
@@ -279,7 +279,53 @@ void print_vec_cmd(const vec_cmd* vector){
   }
 }
 
+bool is_num(char* str){
+  while(*str != '\0'){
+    if(*str > '9' || *str < '0'){
+      return false;
+    }
+    ++ str;
+  }
+  return true;
+}
 
+
+
+void exit_builtin(cmd_t command, vec_cmd* current_line){
+  if (command.argc == 1){
+    fprintf(stderr, "[ERROR] Missing exit code\n");
+    return;
+  }
+  if (command.argc > 2){
+    fprintf(stderr, "[ERROR] Too many arguments\n");
+    return;
+  }
+  if(!is_num(command.argv[1])){
+    fprintf(stderr, "[ERROR] The exit code must be an integer\n");
+    return;
+  }
+  int ret_val = atoi(command.argv[1]);
+
+  // wait for the rest of the processes in the current line
+  for (size_t i = 0; i < current_line->size; i++){
+    waitpid(current_line->values[i].pid, NULL, 0);
+  }
+
+  // wait for all backgrounded processes
+  for(size_t i = 0; i < bg_pids->size; i++){
+    waitpid(bg_pids->values[i], NULL, 0);
+  }
+
+  // clean up current line 
+  destroy_vec_cmd(current_line);
+  current_line = NULL;
+  // clean up bg_pids
+  destroy_vec_pid(bg_pids);
+  // print ret_val
+  printf("Goodbye %d\n", ret_val);
+  // TODO: should we exit with ret_val??
+  _exit(0);
+}
 
 // Lexer states
 typedef enum{
@@ -371,7 +417,7 @@ Token get_next_token(char** input){
         else if(is_nonspace(c) && is_nonreserved(c)){
           state = LS_BUILDING_WORD;
           if (current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
+            fprintf(stderr, "[ERROR] Encountered a token that was too long while processing line!\n");
             return (Token){
               .token = TOKEN_ERROR,
             };
@@ -409,7 +455,7 @@ Token get_next_token(char** input){
           };
           // make sure that we don't overflow buffer to append null terminator
           if(current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
+            fprintf(stderr, "[ERROR] Encountered a token that was too long while processing line!\n");
             return (Token){
               .token = TOKEN_ERROR,
             };
@@ -421,7 +467,7 @@ Token get_next_token(char** input){
         }
         else if(is_nonreserved(c)){
           if (current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
+            fprintf(stderr, "[ERROR] Encountered a token that was too long while processing line!\n");
             return (Token){
               .token = TOKEN_ERROR,
             };
@@ -442,7 +488,7 @@ Token get_next_token(char** input){
           };
           // make sure that we don't overflow buffer to append null terminator
           if(current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
+            fprintf(stderr, "[ERROR] Encountered a token that was too long while processing line!\n");
             return (Token){
               .token = TOKEN_ERROR,
             };
@@ -460,7 +506,7 @@ Token get_next_token(char** input){
         }else {
           // make sure that we don't overflow buffer to append new character
           if(current_token_len >= token_max_len){
-            fprintf(stderr, "Error processing line: token too long!");
+            fprintf(stderr, "[ERROR] Encountered a token that was too long while processing line!\n");
             return (Token){
               .token = TOKEN_ERROR,
             };
@@ -534,8 +580,14 @@ void exec_command(cmd_t* command){
 void exec_line(vec_cmd* parsed_line){
   //print_vec_cmd(parsed_line);
   //return;
+
   for (size_t i = 0; i < parsed_line->size; i ++){
-    exec_command(&(parsed_line->values[i]));
+    // handle builtins
+    if(strcmp(parsed_line->values[i].argv[0], "exit") == 0){
+      exit_builtin(parsed_line->values[i], parsed_line);
+    }else{
+      exec_command(&(parsed_line->values[i]));
+    }
   }
   if(parsed_line->bg == false){
     // wait for children
@@ -583,7 +635,7 @@ vec_cmd* parse_line(char* line, int line_number){
   // check that the first line is as specified
   if (line_number == 1){
     if (strcmp(line, "## Uc3mshell P2") != 0){
-      perror("ERROR: Unexpected first line!\n");
+      perror("[ERROR] Unexpected first line!\n");
       _exit(-1);
     }else{
       return NULL;
@@ -632,7 +684,7 @@ vec_cmd* parse_line(char* line, int line_number){
         int err = pipe(pipe_fd);
         // error occured with pipe!
         if(err < 0){
-          perror("Error opening pipe!");
+          perror("[ERROR] Couldn't open pipe!");
           _exit(-1);
         }
         current_command.out_fd = pipe_fd[1];
@@ -703,7 +755,7 @@ vec_cmd* parse_line(char* line, int line_number){
           strcpy(current_command.filev[2], latest_token.lexeme);
           parser_state = PS_EXPECT_ARGS;
         }else{
-          fprintf(stderr, "Okay this shouldn't be happening!");
+          fprintf(stderr, "Okay this shouldn't be happening!\n");
           ParserSyntaxError(line_number, out);
         }
         break;
@@ -732,7 +784,7 @@ bool resolve_file_redirections(vec_cmd* line){
       // if filev[0] is not an empty string, then we try to open the file...
       int fd = open(line->values[i].filev[0], O_RDONLY);
       if (fd < 0){
-        perror("Error opening input redirection file!");
+        perror("[ERROR] Couldn't open input redirection file!");
         return false;
       }
       line->values[i].in_fd = fd;
@@ -741,7 +793,7 @@ bool resolve_file_redirections(vec_cmd* line){
     if(line->values[i].filev[1][0] != '\0'){
       int fd = open(line->values[i].filev[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Error opening output redirection file!");
+        perror("[ERROR] Couldn't open output redirection file!");
         return false;
       }
       line->values[i].out_fd = fd;
@@ -751,7 +803,7 @@ bool resolve_file_redirections(vec_cmd* line){
     if(line->values[i].filev[2][0] != '\0'){
       int fd = open(line->values[i].filev[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
       if (fd < 0){
-        perror("Error opening error output redirection file!");
+        perror("[ERROR] Couldn't open error output redirection file!");
         return false;
       }
       line->values[i].outerr_fd = fd;
@@ -765,7 +817,7 @@ void process_file(char* filename){
   int fd = open(filename, O_RDONLY);
 
   if (fd < 0){
-    perror("ERROR: Couldn't open input file");
+    perror("[ERROR] Couldn't open input file");
     _exit(0);
   }
 
