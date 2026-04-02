@@ -10,9 +10,7 @@
 
 // TODO: eliminar todo de abajo y este
 // TODO: eliminar TODOs
-// TODO: use perror where specified
 #define max_commands 10
-#define max_redirections 3 // stdin, stdout, stderr
 #define max_args 15
 #define max_line 1024
 #define token_max_len 256
