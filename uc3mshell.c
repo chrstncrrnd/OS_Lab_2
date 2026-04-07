@@ -680,7 +680,7 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
       case TOKEN_PIPE:
         // check we are not in an invalid state firstly
-        if(parser_state == PS_EXPECT_CMD || parser_state == PS_EXPECT_CMD_PIPED){
+        if(parser_state != PS_EXPECT_ARGS){
           ParserSyntaxError(line_number, out);
         }
 
