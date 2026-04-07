@@ -38,12 +38,15 @@
   return NULL;\
 }
 // Once again, does not need to be a macro but is cleaner i think
+// replaces fd1 with fd2, if, and only if, f2 is a valid file descriptor
 #define ReplaceFD(fd1, fd2) { \
-  int errdup = dup2((fd2), (fd1)); \
-  if(errdup < 0){ \
-    fprintf(stderr, "For file descriptor %d", (fd2)); \
-    perror("error duping file descriptor!"); \
-    _exit(-1); \
+  if ((fd2) != -1){ \
+    int errdup = dup2((fd2), (fd1)); \
+    if(errdup < 0){ \
+      fprintf(stderr, "For file descriptor %d", (fd2)); \
+      perror("error duping file descriptor!"); \
+      _exit(-1); \
+    } \
   } \
 } \
 
@@ -537,20 +540,12 @@ void exec_command(cmd_t* command){
     exec_args[command->argc] = NULL;
 
 
-
     // Replace STDIN
-    if(command->in_fd != -1){
-      // using a macro here makes it much cleaner!
-      ReplaceFD(STDIN_FILENO, command->in_fd);
-    }
+    ReplaceFD(STDIN_FILENO, command->in_fd);
     // Replace STDOUT
-    if(command->out_fd != -1){
-      ReplaceFD(STDOUT_FILENO, command->out_fd);
-    }
+    ReplaceFD(STDOUT_FILENO, command->out_fd);
     // Replace STDERR
-    if(command->outerr_fd != -1){
-      ReplaceFD(STDERR_FILENO, command->outerr_fd);
-    }
+    ReplaceFD(STDERR_FILENO, command->outerr_fd);
 
     if(strcmp(exec_args[0], "mycalc") == 0){
       mycalc_builtin(command->argc, exec_args);
@@ -560,6 +555,7 @@ void exec_command(cmd_t* command){
 
     // execute the actual program
     execvp(exec_args[0], exec_args);
+    // fprintf(stderr, "%s: ", command->argv[0]);
     perror("Couldn't execute command correctly!");
     _exit(-1);
   }
