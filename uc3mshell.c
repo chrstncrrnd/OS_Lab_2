@@ -60,7 +60,7 @@ int is_whitespace(char c){
 void strip_left(char* str){
   size_t i, j;
   size_t len = strlen(str);
-  for (i = 0; i <= len; i ++){
+  for (i = 0; i <= len; ++ i){
     if(!(is_whitespace(str[i]))){
       break;
     }
@@ -182,7 +182,7 @@ void destroy_vec_cmd(vec_cmd* to_destroy){
   if (to_destroy == NULL){
     return;
   }
-  for (size_t i = 0; i < to_destroy->size; i++){
+  for (size_t i = 0; i < to_destroy->size; ++ i){
     // we need to make sure that we close all the file descriptors when we destroy this array
     if(to_destroy->values[i].in_fd != -1){
       close_print_error(to_destroy->values[i].in_fd);
@@ -275,7 +275,7 @@ void print_vec_cmd(const vec_cmd* vector){
     return;
   }
 
-  for (size_t i = 0; i < vector->size; i++){
+  for (size_t i = 0; i < vector->size; ++ i){
     print_cmd(&vector->values[i]);
   }
 }
@@ -308,12 +308,12 @@ void exit_builtin(cmd_t command, vec_cmd* current_line){
   int ret_val = atoi(command.argv[1]);
 
   // wait for the rest of the processes in the current line
-  for (size_t i = 0; i < current_line->size; i++){
+  for (size_t i = 0; i < current_line->size; ++ i){
     waitpid(current_line->values[i].pid, NULL, 0);
   }
 
   // wait for all backgrounded processes
-  for(size_t i = 0; i < bg_pids->size; i++){
+  for(size_t i = 0; i < bg_pids->size; ++ i){
     waitpid(bg_pids->values[i], NULL, 0);
   }
 
@@ -534,7 +534,7 @@ void exec_command(cmd_t* command){
   // case child
   if (pid == 0){
     char* exec_args[max_args];
-    for (int i = 0; i < command->argc; i++){
+    for (int i = 0; i < command->argc; ++ i){
       exec_args[i] = command->argv[i];
     }
     exec_args[command->argc] = NULL;
@@ -557,6 +557,7 @@ void exec_command(cmd_t* command){
     execvp(exec_args[0], exec_args);
     // fprintf(stderr, "%s: ", command->argv[0]);
     perror("Couldn't execute command correctly!");
+    // exit CHILD (not parent)
     _exit(-1);
   }
   // case parent
@@ -585,23 +586,30 @@ void exec_line(vec_cmd* parsed_line){
   //print_vec_cmd(parsed_line);
   //return;
 
-  for (size_t i = 0; i < parsed_line->size; i ++){
-    // handle builtins
+  for (size_t i = 0; i < parsed_line->size; ++ i){
+    // handle exit builtin
     if(strcmp(parsed_line->values[i].argv[0], "exit") == 0){
       exit_builtin(parsed_line->values[i], parsed_line);
-    }else{
+    }
+    // handle mycp command (prepend ./)
+    else if(strcmp(parsed_line->values[i].argv[0], "mycp") == 0){
+      char temp[token_max_len] = "./";
+      strcat(temp, parsed_line->values[i].argv[0]);
+      strcpy(parsed_line->values[i].argv[0], temp);
+    }
+    else{
       exec_command(&(parsed_line->values[i]));
     }
   }
   if(parsed_line->bg == false){
     // wait for children
-    for (size_t i = 0; i < parsed_line->size; i++){
+    for (size_t i = 0; i < parsed_line->size; ++ i){
       // wait for only non-backgrounded processes
       waitpid(parsed_line->values[i].pid, NULL, 0);
     }
   }
   else{
-    for (size_t i = 0; i < parsed_line->size; i++){
+    for (size_t i = 0; i < parsed_line->size; ++ i){
       append_vec_pid(bg_pids, parsed_line->values[i].pid);
     }
     // print the last element's pid
@@ -781,7 +789,7 @@ vec_cmd* parse_line(char* line, int line_number){
 
 
 bool resolve_file_redirections(vec_cmd* line){
-  for (size_t i = 0; i < line->size; i ++){
+  for (size_t i = 0; i < line->size; ++ i){
     // handle the file redirections
     // input redirection:
     if(line->values[i].filev[0][0] != '\0'){
@@ -834,7 +842,7 @@ void process_file(char* filename){
   // read in chunks
   while ((bytes_read = read(fd, f_buf, F_RD_BUF_SIZE)) > 0){
     offset = -(ssize_t)strlen(line);
-    for (ssize_t i = 0; i < bytes_read; i ++){
+    for (ssize_t i = 0; i < bytes_read; ++ i){
       if (f_buf[i] == '\n'){
         line[i - offset] = '\0';
         // vector is freed once executed
@@ -872,7 +880,7 @@ int main(int argc, char *argv[]) {
   bg_pids = create_vec_pid();
   process_file(argv[1]);
 
-  for (size_t i = 0; i < bg_pids->size; i ++){
+  for (size_t i = 0; i < bg_pids->size; ++ i){
     waitpid(bg_pids->values[i], NULL, 0);
   }
   destroy_vec_pid(bg_pids);
