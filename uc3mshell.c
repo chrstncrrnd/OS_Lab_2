@@ -28,7 +28,7 @@
   destroy_vec_cmd((out));\
   out = NULL;\
   return NULL;\
-}
+} \
 
 // parser syntax error with message
 #define ParserSyntaxErrorMsg(line_number, message, out) { \
@@ -833,35 +833,52 @@ void process_file(char* filename){
     _exit(0);
   }
 
-  char f_buf[F_RD_BUF_SIZE], line[max_line] = {0};
+  char f_buf[F_RD_BUF_SIZE];
+  char line[max_line] = {0};
   int line_number = 0;
-  ssize_t bytes_read, offset;
-
-
+  ssize_t bytes_read;
+  size_t line_idx = 0; // Tracks our current position in the line buffer
 
   // read in chunks
   while ((bytes_read = read(fd, f_buf, F_RD_BUF_SIZE)) > 0){
-    offset = -(ssize_t)strlen(line);
-    for (ssize_t i = 0; i < bytes_read; ++ i){
+    for (ssize_t i = 0; i < bytes_read; ++i){
+
       if (f_buf[i] == '\n'){
-        line[i - offset] = '\0';
+        line[line_idx] = '\0'; // Terminate the accumulated line
+                               //
         // vector is freed once executed
         vec_cmd* parsed_line = parse_line(line, line_number++);
         if (parsed_line != NULL){
-          // if we have successfully resolved the file redirections (opened the input/output redirections)
+          // if we have successfully resolved the file redirections
           if(resolve_file_redirections(parsed_line)){
             exec_line(parsed_line);
           }
           destroy_vec_cmd(parsed_line);
-          parsed_line = NULL;
         }
-        line[0] = '\0';
-        offset = i + 1;
-        continue;
+
+        line_idx = 0; // reset index for the next line
       }
-      line[i - offset] = f_buf[i];
+      else {
+        // make sure we have space
+        if (line_idx < max_line - 1) {
+            line[line_idx++] = f_buf[i];
+        }
+      }
     }
   }
+
+  // handle a potential final line that didn't end in a newline
+  if (line_idx > 0) {
+    line[line_idx] = '\0';
+    vec_cmd* parsed_line = parse_line(line, line_number++);
+    if (parsed_line != NULL){
+      if(resolve_file_redirections(parsed_line)){
+        exec_line(parsed_line);
+      }
+      destroy_vec_cmd(parsed_line);
+    }
+  }
+
   // close file
   close_print_error(fd);
 }
