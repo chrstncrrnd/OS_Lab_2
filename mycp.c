@@ -5,7 +5,8 @@
 // The size of the buffer to be read
 #define BUFSIZE 512
 
-int main(int argc, char **argv){ // We copy the contents of argv[1] into argv[2]
+int main(int argc, char **argv){ 
+  // We copy the contents of the file specified in argv[1] into the one in argv[2]
   int source_file, destination_file;
   ssize_t bytes_read;
   char buf[BUFSIZE];
@@ -19,6 +20,7 @@ int main(int argc, char **argv){ // We copy the contents of argv[1] into argv[2]
     return -1; // There was an error opening the file to be copied
   }
 
+  // default copy behaviour overwrites second operand
   if ((destination_file = open(argv[2], O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0) {
     close(source_file);
     return -1; // There was an error creating the copy
@@ -38,7 +40,9 @@ int main(int argc, char **argv){ // We copy the contents of argv[1] into argv[2]
     return -1; // There was an error reading the contents
   }
 
+  // close files
   close(source_file);
   close(destination_file);
+
   return 0;
 }
