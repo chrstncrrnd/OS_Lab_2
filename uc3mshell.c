@@ -5,7 +5,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <string.h>
 #include <unistd.h>
 
 // TODO: eliminar todo de abajo y este
@@ -14,6 +13,7 @@
 #define max_args 15
 #define max_line 1024
 #define token_max_len 256
+#define arg_max_len (max_line / max_args)
 // File Read Buffer size. Must be at least max_line
 #define F_RD_BUF_SIZE 1024
 #define true 1
@@ -23,20 +23,33 @@
 
 // Really doesn't need to be a macro but i wanted to mess around
 // with macros
-#define ParserSyntaxError(line_number, out) { \
+#define ParserSyntaxError(line_number, out, current_command) { \
   fprintf(stderr, "Syntax error on line %d!\n", (line_number));\
   destroy_vec_cmd((out));\
   out = NULL;\
+  if(current_command.in_fd != -1){\
+    if (close(current_command.in_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
   return NULL;\
-} \
+}
 
 // parser syntax error with message
-#define ParserSyntaxErrorMsg(line_number, message, out) { \
+#define ParserSyntaxErrorMsg(line_number, message, out, current_command) { \
   fprintf(stderr, "Syntax error on line %d: "message"!\n", (line_number));\
   destroy_vec_cmd((out));\
   out = NULL;\
+  if(current_command.in_fd != -1){\
+    if (close(current_command.in_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
   return NULL;\
 }
+
 // Once again, does not need to be a macro but is cleaner i think
 // replaces fd1 with fd2, if, and only if, f2 is a valid file descriptor
 #define ReplaceFD(fd1, fd2) { \
@@ -48,7 +61,7 @@
       _exit(-1); \
     } \
   } \
-} \
+}
 
 
 // string strip functionality
@@ -58,6 +71,9 @@ int is_whitespace(char c){
 
 
 void strip_left(char* str){
+  if (str == NULL || *str == '\0') {
+    return; 
+  }
   size_t i, j;
   size_t len = strlen(str);
   for (i = 0; i <= len; ++ i){
@@ -71,14 +87,15 @@ void strip_left(char* str){
   str[j] = 0;
 }
 
-void strip_right(char* str){
-  size_t i;
-  for (i = strlen(str) - 1; ; i --){
-    if (!is_whitespace(str[i])){
-      break;
-    }
+void strip_right(char* str) {
+  if (str == NULL || *str == '\0') {
+    return; 
   }
-  str[++i] = 0;
+  size_t len = strlen(str);
+  while (len > 0 && is_whitespace(str[len - 1])) {
+    len--;
+  }
+  str[len] = '\0';
 }
 
 
@@ -104,7 +121,7 @@ typedef struct {
   pid_t pid;
   int argc;
   // name is argv[0]
-  char argv[max_args][max_line / max_args]; // TODO: THIS NEEDS OPTIMIZING
+  char argv[max_args][arg_max_len]; // this is huge but it needs to be this way
   int in_fd;
   int out_fd;
   int outerr_fd;
@@ -583,21 +600,21 @@ void exec_command(cmd_t* command){
 
 // once we have parsed the line into cmd_t, we can proceed to execute them
 void exec_line(vec_cmd* parsed_line){
-  //print_vec_cmd(parsed_line);
-  //return;
+  // print_vec_cmd(parsed_line);
+  // return;
 
   for (size_t i = 0; i < parsed_line->size; ++ i){
     // handle exit builtin
     if(strcmp(parsed_line->values[i].argv[0], "exit") == 0){
       exit_builtin(parsed_line->values[i], parsed_line);
     }
-    // handle mycp command (prepend ./)
-    else if(strcmp(parsed_line->values[i].argv[0], "mycp") == 0){
-      char temp[token_max_len] = "./";
-      strcat(temp, parsed_line->values[i].argv[0]);
-      strcpy(parsed_line->values[i].argv[0], temp);
-    }
     else{
+      // handle mycp command (prepend ./)
+      if(strcmp(parsed_line->values[i].argv[0], "mycp") == 0){
+        char temp[arg_max_len] = "./";
+        strcat(temp, parsed_line->values[i].argv[0]);
+        strcpy(parsed_line->values[i].argv[0], temp);
+      }
       exec_command(&(parsed_line->values[i]));
     }
   }
@@ -675,23 +692,23 @@ vec_cmd* parse_line(char* line, int line_number){
   // we get a TOKEN_NULL once we have reached the end of the input
   while((latest_token = get_next_token(&store)).token != TOKEN_NULL){
     if (parser_state == PS_EXPECT_EOL){
-      ParserSyntaxErrorMsg(line_number, "expected end of line", out)
+      ParserSyntaxErrorMsg(line_number, "expected end of line", out, current_command);
     }
     switch(latest_token.token){
       case TOKEN_ERROR:
         // ParserSyntaxError macro returns automatically
-        ParserSyntaxError(line_number, out);
+        ParserSyntaxError(line_number, out, current_command);
         break;
       case TOKEN_PIPE:
         // check we are not in an invalid state firstly
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
 
         // then check that we haven't already specified an output file for our command
         if(current_command.filev[1][0] != '\0' /*for stdout*/ || current_command.filev[2][0] != '\0' /*for stderr*/){
           // returns automatically and includes the specified message in debug
-          ParserSyntaxErrorMsg(line_number, "output redirection is already specified, cannot pipe output", out);
+          ParserSyntaxErrorMsg(line_number, "output redirection is already specified, cannot pipe output", out, current_command);
         }
         int err = pipe(pipe_fd);
         // error occured with pipe!
@@ -708,7 +725,7 @@ vec_cmd* parse_line(char* line, int line_number){
         break;
       case TOKEN_BACKGROUND:
         if (parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
         out->bg = true;
         parser_state = PS_EXPECT_EOL;
@@ -716,32 +733,32 @@ vec_cmd* parse_line(char* line, int line_number){
       case TOKEN_REDIR_OUT:
         // make sure we are in the right state
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
         // make sure we haven't already supplied an output redirection
         if (current_command.filev[1][0] != '\0'){
-          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out);
+          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out, current_command);
         }
         parser_state = PS_EXPECT_FILENAME_OUT;
         break;
       case TOKEN_REDIR_IN:
         // check state
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
         // make sure that we haven't already specified an input
         if(current_command.in_fd != -1 || current_command.filev[0][0] != '\0'){
-          ParserSyntaxErrorMsg(line_number, "cannot have input redirection, input already comes from pipe", out);
+          ParserSyntaxErrorMsg(line_number, "cannot have input redirection, input already comes from pipe", out, current_command);
         }
         parser_state = PS_EXPECT_FILENAME_INP;
         break;
       case TOKEN_REDIR_ERR:
         if(parser_state != PS_EXPECT_ARGS){
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
         // make sure we haven't already supplied an error redirection
         if (current_command.filev[2][0] != '\0'){
-          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out);
+          ParserSyntaxErrorMsg(line_number, "output redirection already supplied", out, current_command);
         }
         parser_state = PS_EXPECT_FILENAME_ERR;
         break;
@@ -768,17 +785,17 @@ vec_cmd* parse_line(char* line, int line_number){
           parser_state = PS_EXPECT_ARGS;
         }else{
           fprintf(stderr, "Okay this shouldn't be happening!\n");
-          ParserSyntaxError(line_number, out);
+          ParserSyntaxError(line_number, out, current_command);
         }
         break;
       case TOKEN_NULL:
         // We can't get this token but for completion of cases its included as a syntax error
-        ParserSyntaxErrorMsg(line_number, "fatal error", out);
+        ParserSyntaxErrorMsg(line_number, "fatal error", out, current_command);
         break;
     }
   }
   if(parser_state != PS_EXPECT_ARGS && parser_state != PS_EXPECT_EOL){
-    ParserSyntaxError(line_number, out);
+    ParserSyntaxError(line_number, out, current_command);
   }
   if (current_command.argc != 0){
     append_vec_cmd(out, current_command);
