@@ -1,6 +1,5 @@
 #include "mycalc.h" // Includes mycalc.h
 #include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -366,7 +365,7 @@ void exit_builtin(cmd_t command, vec_cmd* current_line){
   destroy_vec_pid(bg_pids);
   // print ret_val
   printf("Goodbye %d\n", ret_val);
-  _exit(ret_val);
+  exit(ret_val);
 }
 
 void mycalc_builtin(int argc, char* argv[max_args]){
@@ -654,7 +653,7 @@ void exec_line(vec_cmd* parsed_line){
       append_vec_pid(bg_pids, parsed_line->values[i].pid);
     }
     // print the last element's pid
-    printf("%d\n", parsed_line->values[parsed_line->size - 1].pid);
+    printf("%d", parsed_line->values[parsed_line->size - 1].pid);
   }
 
 }
@@ -925,13 +924,6 @@ void process_file(char* filename){
 }
 
 
-void sigchld_handler(int sig){
-  // remove unused variable error
-  (void)sig;
-  while (waitpid(-1, NULL, WNOHANG) > 0) {
-    // wait on children
-  }
-}
 
 void print_usage(char* bin_name){
   fprintf(stderr, "Usage: %s <input_file>\n", bin_name);
@@ -943,20 +935,6 @@ int main(int argc, char *argv[]) {
   if (argc != 2){
     print_usage(argv[0]);
     return -1;
-  }
-
-  // setup handler for SIGCHLD signal
-  struct sigaction act;
-  // make sure no garbage data in act
-  memset(&act, 0, sizeof(act));
-
-  act.sa_handler = sigchld_handler;
-  sigemptyset(&act.sa_mask);
-  act.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-
-  if (sigaction(SIGCHLD, &act, NULL) == -1) {
-    perror("[ERROR] Couldn't set up SIGCHLD handler");
-    _exit(-1);
   }
 
   bg_pids = create_vec_pid();
