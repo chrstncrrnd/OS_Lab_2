@@ -12,7 +12,7 @@ int main(int argc, char **argv){
   char buf[BUFSIZE];
 
   if (argc != 3) {
-    printf("Usage: %s <source_file> <destination_file>\n", argv[0]);
+    fprintf(stderr, "Usage: %s <source_file> <destination_file>\n", argv[0]);
     return -1; // There was an error in the number of parameters passed
   }
 

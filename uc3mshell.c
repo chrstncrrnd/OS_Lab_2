@@ -1,5 +1,6 @@
 #include "mycalc.h" // Includes mycalc.h
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,18 @@
       _exit(-1); \
     } \
   } \
+  if(current_command.out_fd != -1){\
+    if (close(current_command.out_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
+  if(current_command.outerr_fd != -1){\
+    if (close(current_command.outerr_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
   return NULL;\
 }
 
@@ -43,6 +56,18 @@
   out = NULL;\
   if(current_command.in_fd != -1){\
     if (close(current_command.in_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
+  if(current_command.out_fd != -1){\
+    if (close(current_command.out_fd) < 0){ \
+      perror("[ERROR] Encountered an error while closing pipe!"); \
+      _exit(-1); \
+    } \
+  } \
+  if(current_command.outerr_fd != -1){\
+    if (close(current_command.outerr_fd) < 0){ \
       perror("[ERROR] Encountered an error while closing pipe!"); \
       _exit(-1); \
     } \
@@ -341,8 +366,7 @@ void exit_builtin(cmd_t command, vec_cmd* current_line){
   destroy_vec_pid(bg_pids);
   // print ret_val
   printf("Goodbye %d\n", ret_val);
-  // TODO: should we exit with ret_val??
-  _exit(0);
+  _exit(ret_val);
 }
 
 void mycalc_builtin(int argc, char* argv[max_args]){
@@ -900,6 +924,15 @@ void process_file(char* filename){
   close_print_error(fd);
 }
 
+
+void sigchld_handler(int sig){
+  // remove unused variable error
+  (void)sig;
+  while (waitpid(-1, NULL, WNOHANG) > 0) {
+    // wait on children
+  }
+}
+
 void print_usage(char* bin_name){
   fprintf(stderr, "Usage: %s <input_file>\n", bin_name);
 }
@@ -911,6 +944,21 @@ int main(int argc, char *argv[]) {
     print_usage(argv[0]);
     return -1;
   }
+
+  // setup handler for SIGCHLD signal
+  struct sigaction act;
+  // make sure no garbage data in act
+  memset(&act, 0, sizeof(act));
+
+  act.sa_handler = sigchld_handler;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+
+  if (sigaction(SIGCHLD, &act, NULL) == -1) {
+    perror("[ERROR] Couldn't set up SIGCHLD handler");
+    _exit(-1);
+  }
+
   bg_pids = create_vec_pid();
   process_file(argv[1]);
 
