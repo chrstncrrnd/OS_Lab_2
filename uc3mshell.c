@@ -7,8 +7,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// TODO: eliminar todo de abajo y este
-// TODO: eliminar TODOs
 #define max_commands 10
 #define max_args 15
 #define max_line 1024
@@ -414,7 +412,7 @@ Token get_next_token(char** input){
 
   char c;
 
-  char buffer[token_max_len] = {0}; // TODO: this needs optimization
+  char buffer[token_max_len] = {0};
   size_t current_token_len = 0;
   LexerState state = LS_INITIAL;
 
@@ -937,11 +935,17 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
+
+  // create the vector of pids
   bg_pids = create_vec_pid();
   process_file(argv[1]);
 
+  // wait for child processes
   for (size_t i = 0; i < bg_pids->size; ++ i){
     waitpid(bg_pids->values[i], NULL, 0);
   }
+
+  // clean up resources
   destroy_vec_pid(bg_pids);
+  return 0;
 }
