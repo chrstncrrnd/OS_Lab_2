@@ -78,7 +78,7 @@
   if ((fd2) != -1){ \
     int errdup = dup2((fd2), (fd1)); \
     if(errdup < 0){ \
-      fprintf(stderr, "For file descriptor %d", (fd2)); \
+      fprintf(stderr, "For file descriptor %d ", (fd2)); \
       perror("error duping file descriptor!"); \
       _exit(-1); \
     } \
@@ -320,6 +320,9 @@ void print_vec_cmd(const vec_cmd* vector){
 }
 
 bool is_num(char* str){
+  if (str[0] == '-'){
+    str++;
+  }
   while(*str != '\0'){
     if(*str > '9' || *str < '0'){
       return false;
