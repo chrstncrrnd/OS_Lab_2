@@ -682,11 +682,6 @@ vec_cmd* parse_line(char* line, int line_number){
   line_number ++; // so that our debug messasges aren't 0 indexed for lines
   strip(line);
 
-  size_t line_len = strlen(line);
-  // skip empty or whitespace lines
-  if (line_len == 0){
-    return NULL;
-  }
 
   // check that the first line is as specified
   if (line_number == 1){
@@ -696,6 +691,12 @@ vec_cmd* parse_line(char* line, int line_number){
     }else{
       return NULL;
     }
+  }
+
+  size_t line_len = strlen(line);
+  // skip empty or whitespace lines
+  if (line_len == 0){
+    return NULL;
   }
   // if line is comment, skip
   if (line[0] == '#'){
@@ -733,7 +734,8 @@ vec_cmd* parse_line(char* line, int line_number){
         }
 
         // then check that we haven't already specified an output file for our command
-        if(current_command.filev[1][0] != '\0' /*for stdout*/ || current_command.filev[2][0] != '\0' /*for stderr*/){
+        // stderr does not get piped
+        if(current_command.filev[1][0] != '\0' /*for stdout*/){
           // returns automatically and includes the specified message in debug
           ParserSyntaxErrorMsg(line_number, "output redirection is already specified, cannot pipe output", out, current_command);
         }
