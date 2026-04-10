@@ -17,11 +17,13 @@ int main(int argc, char **argv){
   }
 
   if ((source_file = open(argv[1], O_RDONLY)) < 0) {
+    perror("Couldn't open source file!");
     return -1; // There was an error opening the file to be copied
   }
 
   // default copy behaviour overwrites second operand
   if ((destination_file = open(argv[2], O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0) {
+    perror("Couldn't open destination file!");
     close(source_file);
     return -1; // There was an error creating the copy
   }
@@ -30,6 +32,7 @@ int main(int argc, char **argv){
   while ((bytes_read = read(source_file, buf, BUFSIZE)) > 0) {
     // Write the contents of the buffer in the destination file
     if (write(destination_file, buf, (size_t)bytes_read) < 0) {
+      perror("Couldn't write to destination file!");
       close(source_file);
       close(destination_file);
       return -1; // There was an error copying the contents
