@@ -7,7 +7,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define max_commands 10
 #define max_args 15
 #define max_line 1024
 #define token_max_len 256
