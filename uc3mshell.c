@@ -654,7 +654,10 @@ void exec_line(vec_cmd* parsed_line){
       append_vec_pid(bg_pids, parsed_line->values[i].pid);
     }
     // print the last element's pid
+    // personally, i would've added a newline after this but this was as specified
     printf("%d", parsed_line->values[parsed_line->size - 1].pid);
+    // make sure that we get the PIDs out before
+    fflush(stdout);
   }
 
 }
