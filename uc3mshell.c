@@ -886,7 +886,6 @@ void process_file(char* filename){
 
       if (f_buf[i] == '\n'){
         line[line_idx] = '\0'; // Terminate the accumulated line
-                               //
         // vector is freed once executed
         vec_cmd* parsed_line = parse_line(line, line_number++);
         if (parsed_line != NULL){
@@ -895,6 +894,8 @@ void process_file(char* filename){
             exec_line(parsed_line);
           }
           destroy_vec_cmd(parsed_line);
+          // avoid use after frees
+          parsed_line = NULL;
         }
 
         line_idx = 0; // reset index for the next line
@@ -917,6 +918,7 @@ void process_file(char* filename){
         exec_line(parsed_line);
       }
       destroy_vec_cmd(parsed_line);
+      parsed_line = NULL;
     }
   }
 
