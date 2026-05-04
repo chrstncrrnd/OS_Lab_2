@@ -1,10 +1,10 @@
 # OS Lab 2: `uc3mshell`
 A unix shell written using syscalls exclusively for process management and file reading/writing. 
 
-# Usage: 
+## Usage: 
 ```./uc3mshell <input_file>```
 
-# Features
+# Features:
 - Reads commands from input file. 
 - Unlimited `stdin` and `stdout` redirections using pipes. 
 For example: `cat example.py | wc -l`.
