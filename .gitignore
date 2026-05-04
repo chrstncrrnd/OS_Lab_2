@@ -9,3 +9,5 @@ issue*
 dudas.md
 scripts-ejemplo
 mycalc.log
+tests/*
+tester.sh
